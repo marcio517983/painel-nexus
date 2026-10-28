@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Mestre IoT - Multi-Condomínio</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); 
+        }
+        
+        /* Light Glassmorphism */
+        .glass-card { 
+            background: rgba(255, 255, 255, 0.85); 
+            backdrop-filter: blur(12px); 
+            -webkit-backdrop-filter: blur(12px); 
+            border: 1px solid rgba(255, 255, 255, 0.6); 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); 
+        }
+        
+        /* Widget Expand/Collapse Animations */
+        .widget-content { 
+            transition: max-height 0.4s ease-in-out, opacity 0.4s ease-in-out; 
+            overflow: hidden; 
+        }
+        .widget-collapsed { max-height: 0; opacity: 0; }
+        .widget-expanded { max-height: 1000px; opacity: 1; }
+        
+        /* Terminal */
+        .console-log { font-family: 'Courier New', Courier, monospace; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="text-slate-800 min-h-screen flex flex-col antialiased">
+
+    <!-- 1. Navbar Escura -->
+    <nav class="bg-slate-900 text-white shadow-xl z-20 sticky top-0">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20">
+                        <i class="fa-solid fa-server text-xl"></i>
+                    </div>
+                    <div>
+                        <span class="font-bold text-lg tracking-tight">NexusMaster <span class="text-blue-400 font-medium">IoT</span></span>
+                        <p class="text-[10px] text-slate-400 uppercase tracking-wider -mt-1">Painel Global de Integração</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <!-- Status MQTT -->
+                    <span class="text-xs bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700 flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></span>
+                        <span class="font-medium text-slate-300">MQTT Broker: <b class="text-emerald-400">Online</b></span>
+                    </span>
+                    <button class="text-slate-400 hover:text-white transition-colors w-8 h-8 rounded-full hover:bg-slate-800 flex items-center justify-center">
+                        <i class="fa-solid fa-gear"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-1 w-full max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
+
+        <!-- 2. KPIs -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="glass-card rounded-xl p-4 flex items-center gap-4">
+                <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xl border border-blue-100">
+                    <i class="fa-regular fa-building"></i>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500 font-semibold uppercase">Condomínios Ativos</p>
+                    <p class="text-2xl font-bold text-slate-800">24</p>
+                </div>
+            </div>
+            <div class="glass-card rounded-xl p-4 flex items-center gap-4">
+                <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl border border-emerald-100">
+                    <i class="fa-solid fa-microchip"></i>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500 font-semibold uppercase">Centrais S3 Online</p>
+                    <p class="text-2xl font-bold text-slate-800">24 <span class="text-xs font-normal text-emerald-500">(100%)</span></p>
+                </div>
+            </div>
+            <div class="glass-card rounded-xl p-4 flex items-center gap-4">
+                <div class="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl border border-indigo-100">
+                    <i class="fa-solid fa-network-wired"></i>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500 font-semibold uppercase">Nós Escravos Pareados</p>
+                    <p class="text-2xl font-bold text-slate-800">112</p>
+                </div>
+            </div>
+            <div class="glass-card rounded-xl p-4 flex items-center gap-4">
+                <div class="w-12 h-12 rounded-full bg-slate-50 text-slate-600 flex items-center justify-center text-xl border border-slate-200">
+                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500 font-semibold uppercase">Último OTA Enviado</p>
+                    <p class="text-sm font-bold text-slate-800 mt-1">Hoje, 10:45</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Widget Retrátil: Lista de Condomínios -->
+        <div class="glass-card rounded-2xl overflow-hidden border border-white/80">
+            <!-- Header Clickable -->
+            <div class="px-6 py-4 border-b border-slate-200/60 flex justify-between items-center cursor-pointer hover:bg-white/40 transition-colors bg-white/50" onclick="toggleWidget('condoWidget')">
+                <div class="flex items-center gap-3">
+                    <i class="fa-solid fa-list-ul text-blue-600"></i>
+                    <h2 class="text-sm font-bold text-slate-800">Seletor de Unidades Gerenciadas</h2>
+                </div>
+                <i id="condoWidgetIcon" class="fa-solid fa-chevron-up text-slate-400 transition-transform duration-300"></i>
+            </div>
+            
+            <!-- Conteúdo do Widget -->
+            <div id="condoWidget" class="widget-content widget-expanded">
+                <div class="p-6 bg-white/30">
+                    <!-- Barra de Busca -->
+                    <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
+                        <div class="relative w-full sm:w-96">
+                            <i class="fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                            <input type="text" placeholder="Buscar condomínio por nome ou MAC..." class="w-full pl-11 pr-4 py-2.5 bg-white/80 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm">
+                        </div>
+                        <button class="w-full sm:w-auto px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-semibold transition-colors shadow-md">
+                            <i class="fa-solid fa-plus mr-2"></i> Provisionar Nova Central
+                        </button>
+                    </div>
+                    
+                    <!-- Tabela de Condomínios -->
+                    <div class="overflow-x-auto rounded-xl border border-slate-200/60 bg-white/60">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-slate-50/80 text-xs text-slate-500 uppercase font-semibold">
+                                <tr>
+                                    <th class="px-6 py-4">Cliente / Condomínio</th>
+                                    <th class="px-6 py-4">MAC S3 Master</th>
+                                    <th class="px-6 py-4">Status Rede</th>
+                                    <th class="px-6 py-4 text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                <tr class="hover:bg-blue-50/50 transition-colors bg-blue-50/30 border-l-4 border-blue-500">
+                                    <td class="px-6 py-4">
+                                        <div class="font-bold text-slate-800">Edifício Mirabela</div>
+                                        <div class="text-[10px] text-slate-500 mt-0.5">3 Escravos Vinculados</div>
+                                    </td>
+                                    <td class="px-6 py-4 font-mono text-xs text-slate-500">F4:12:FA:C3:90:11</td>
+                                    <td class="px-6 py-4">
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                                            <i class="fa-solid fa-circle text-[8px] text-emerald-500"></i> Online (14ms)
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <button class="text-blue-600 hover:text-blue-800 font-bold text-xs bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">Selecionado</button>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-slate-50/80 transition-colors">
+                                    <td class="px-6 py-4">
+                                        <div class="font-bold text-slate-800">Maison Soraya</div>
+                                        <div class="text-[10px] text-slate-500 mt-0.5">2 Escravos Vinculados</div>
+                                    </td>
+                                    <td class="px-6 py-4 font-mono text-xs text-slate-500">A1:B2:C3:D4:E5:F6</td>
+                                    <td class="px-6 py-4">
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                                            <i class="fa-solid fa-circle text-[8px] text-emerald-500"></i> Online (22ms)
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <button class="text-slate-500 hover:text-blue-600 font-bold text-xs">Inspecionar</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Painel Detalhado (Edifício Mirabela) -->
+        <div class="space-y-6">
+            <!-- Header do Condomínio Selecionado -->
+            <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                <div>
+                    <h1 class="text-2xl font-extrabold text-slate-800 tracking-tight">Edifício Mirabela</h1>
+                    <p class="text-xs text-slate-500 font-medium mt-1">
+                        <i class="fa-solid fa-microchip mr-1"></i> S3 Master: <span class="font-mono">F4:12:FA:C3:90:11</span> | Canal Wi-Fi: 6 | Firmware: v2.4.1
+                    </p>
+                </div>
+                <!-- 9. Botão OTA -->
+                <button onclick="openOtaModal()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 active:scale-95">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> Disparar OTA
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- 5. Topologia ESP-NOW (2/3 da largura) -->
+                <div class="lg:col-span-2 glass-card rounded-2xl p-6 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-blue-100/50 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+                    
+                    <h3 class="font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-200 pb-3">
+                        <i class="fa-solid fa-diagram-project text-blue-600"></i> Topologia de Nós Escravos
+                    </h3>
+                    
+                    <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white/50">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-100/50 text-xs font-semibold text-slate-500">
+                                <tr>
+                                    <th class="px-4 py-3">ID</th>
+                                    <th class="px-4 py-3">Nome / Periférico</th>
+                                    <th class="px-4 py-3">MAC Escravo</th>
+                                    <th class="px-4 py-3 text-right">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200">
+                                <!-- Nó 1: Portão -->
+                                <tr class="hover:bg-white/80 transition-colors group">
+                                    <td class="px-4 py-3 font-mono text-xs text-slate-400">#01</td>
+                                    <td class="px-4 py-3">
+                                        <div class="font-bold text-slate-800 flex items-center gap-2">
+                                            <!-- Edição Inline -->
+                                            <span class="cursor-pointer border-b border-dashed border-slate-400 hover:text-blue-600 transition-colors" onclick="startEdit(this, 'Pedestre Social')">
+                                                Pedestre Social <i class="fa-solid fa-pen text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                                            </span>
+                                            <input type="text" class="hidden bg-slate-100 border border-blue-300 rounded px-2 py-1 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 w-48" onblur="finishEdit(this)" onkeypress="if(event.key === 'Enter') finishEdit(this)">
+                                        </div>
+                                        <div class="text-[10px] text-slate-500 mt-0.5">Tipo: Relé Pulso Seco (3s)</div>
+                                    </td>
+                                    <td class="px-4 py-3 font-mono text-xs text-slate-500">C3:0A:11:22:33:01</td>
+                                    <td class="px-4 py-3 text-right">
+                                        <button onclick="openControlModal('Pedestre Social', 'portao')" class="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm">
+                                            Controles
+                                        </button>
+                                    </td>
+                                </tr>
+                                
+                                <!-- Nó 2: Portão -->
+                                <tr class="hover:bg-white/80 transition-colors group">
+                                    <td class="px-4 py-3 font-mono text-xs text-slate-400">#02</td>
+                                    <td class="px-4 py-3">
+                                        <div class="font-bold text-slate-800 flex items-center gap-2">
+                                            <span class="cursor-pointer border-b border-dashed border-slate-400 hover:text-blue-600 transition-colors" onclick="startEdit(this, 'Garagem Entrada')">
+                                                Garagem Entrada <i class="fa-solid fa-pen text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                                            </span>
+                                            <input type="text" class="hidden bg-slate-100 border border-blue-300 rounded px-2 py-1 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 w-48" onblur="finishEdit(this)" onkeypress="if(event.key === 'Enter') finishEdit(this)">
+                                        </div>
+                                        <div class="text-[10px] text-slate-500 mt-0.5">Tipo: Relé + Fim de Curso</div>
+                                    </td>
+                                    <td class="px-4 py-3 font-mono text-xs text-slate-500">C3:0A:11:22:33:02</td>
+                                    <td class="px-4 py-3 text-right">
+                                        <button onclick="openControlModal('Garagem Entrada', 'portao')" class="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm">
+                                            Controles
+                                        </button>
+                                    </td>
+                                </tr>
+
+                                <!-- Nó 3: Bomba -->
+                                <tr class="hover:bg-white/80 transition-colors group">
+                                    <td class="px-4 py-3 font-mono text-xs text-slate-400">#03</td>
+                                    <td class="px-4 py-3">
+                                        <div class="font-bold text-slate-800 flex items-center gap-2">
+                                            <span class="cursor-pointer border-b border-dashed border-slate-400 hover:text-blue-600 transition-colors" onclick="startEdit(this, 'Casa de Bombas')">
+                                                Casa de Bombas <i class="fa-solid fa-pen text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                                            </span>
+                                            <input type="text" class="hidden bg-slate-100 border border-blue-300 rounded px-2 py-1 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 w-48" onblur="finishEdit(this)" onkeypress="if(event.key === 'Enter') finishEdit(this)">
+                                        </div>
+                                        <div class="text-[10px] text-slate-500 mt-0.5">Tipo: Telemetria & Contator</div>
+                                    </td>
+                                    <td class="px-4 py-3 font-mono text-xs text-slate-500">C3:0A:11:22:33:03</td>
+                                    <td class="px-4 py-3 text-right">
+                                        <button onclick="openControlModal('Casa de Bombas', 'bomba')" class="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm">
+                                            Controles
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 6. Monitor da Bomba (1/3 da largura) -->
+                <div class="glass-card rounded-2xl p-6 flex flex-col justify-between border-t-4 border-t-blue-500 relative overflow-hidden">
+                    <div>
+                        <h3 class="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                            <i class="fa-solid fa-water text-blue-500"></i> Monitor Preditivo (Bomba)
+                        </h3>
+
+                        <!-- Display de Estado Lógico -->
+                        <div class="bg-white/60 rounded-2xl p-6 border border-slate-200 text-center mb-6 shadow-inner">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Status Operacional</p>
+                            
+                            <!-- Container Dinâmico do Ícone -->
+                            <div id="pump-icon-container" class="w-24 h-24 mx-auto rounded-full flex items-center justify-center transition-all duration-300 bg-slate-100 text-slate-400 border border-slate-200">
+                                <i id="pump-icon" class="fa-solid fa-power-off text-4xl"></i>
+                            </div>
+                            
+                            <!-- Textos Dinâmicos -->
+                            <h4 id="pump-status-title" class="text-2xl font-black text-slate-700 mt-4">Standby</h4>
+                            <p id="pump-status-desc" class="text-xs text-slate-500 mt-1">Aguardando nível baixar.</p>
+                        </div>
+                    </div>
+
+                    <!-- Botões de Simulação Rápida (Bancada) -->
+                    <div class="space-y-2">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase text-center">Simulação de Bancada</p>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button onclick="setPumpState('standby')" class="py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold border border-slate-300 transition-colors">Standby</button>
+                            <button onclick="setPumpState('ligada')" class="py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg text-xs font-bold border border-blue-200 transition-colors">Ligar</button>
+                            <button onclick="setPumpState('falha')" class="py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-xs font-bold border border-red-200 transition-colors">Falha</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- 8. Terminal MQTT -->
+        <div class="bg-slate-900 rounded-2xl shadow-xl overflow-hidden border border-slate-800">
+            <div class="bg-slate-950 px-4 py-3 flex justify-between items-center border-b border-slate-800">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-terminal text-slate-400"></i>
+                    <span class="text-sm font-semibold text-slate-300 font-mono tracking-wide">Terminal Serial / MQTT Logs</span>
+                </div>
+                <div class="flex gap-2">
+                    <span class="w-3 h-3 rounded-full bg-red-500/80"></span>
+                    <span class="w-3 h-3 rounded-full bg-yellow-500/80"></span>
+                    <span class="w-3 h-3 rounded-full bg-green-500/80"></span>
+                </div>
+            </div>
+            <div id="terminal-content" class="p-4 h-48 overflow-y-auto console-log text-xs text-emerald-400 space-y-1">
+                <div><span class="text-slate-500">[18:45:02]</span> <span class="text-blue-400">INFO:</span> Conectado ao broker mqtt.nexus.local:1883</div>
+                <div><span class="text-slate-500">[18:45:05]</span> <span class="text-yellow-400">SUB:</span> Inscrito em condo/mirabela/#</div>
+                <div><span class="text-slate-500">[18:48:12]</span> <span class="text-purple-400">RECV (ESP-NOW):</span> Node #01 -> Status: fechado, RSSI: -54dBm</div>
+                <div><span class="text-slate-500">[18:50:00]</span> <span class="text-purple-400">RECV (ESP-NOW):</span> Node #03 -> Pump: standby</div>
+                <div class="animate-pulse">_</div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 7. Modal Flutuante de Controle (Dinâmico) -->
+    <div id="controlModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm hidden items-center justify-center z-50 p-4 opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden transform scale-95 transition-transform duration-300" id="controlModalContent">
+            <!-- Header Modal -->
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div>
+                    <h3 class="text-sm font-extrabold text-slate-800 uppercase tracking-wide" id="modal-title">Equipamento</h3>
+                    <p class="text-[10px] text-slate-500 font-mono mt-0.5"><i class="fa-solid fa-link mr-1"></i> Comando via MQTT -> ESP-NOW</p>
+                </div>
+                <button onclick="closeControlModal()" class="w-8 h-8 rounded-full bg-slate-200 text-slate-500 hover:bg-slate-300 flex items-center justify-center transition-colors">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <!-- Body Dinâmico Modal -->
+            <div class="p-6" id="modal-body">
+                <!-- Preenchido via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 9. Modal OTA -->
+    <div id="otaModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4 opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden transform scale-95 transition-transform duration-300" id="otaModalContent">
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-indigo-50/50">
+                <h3 class="text-sm font-extrabold text-indigo-900 uppercase tracking-wide"><i class="fa-solid fa-cloud-arrow-up mr-2 text-indigo-600"></i> Distribuição OTA</h3>
+                <button onclick="closeOtaModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="p-6 space-y-4">
+                <p class="text-xs text-slate-600 text-center mb-6">Envie atualizações de firmware remotamente para o Master ou para a rede mesh ESP-NOW.</p>
+                
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Alvo da Atualização</label>
+                    <select class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-indigo-500">
+                        <option>Central S3 Master (Mirabela)</option>
+                        <option>Escravo #01 (Portão)</option>
+                        <option>Broadcast Geral (Todos os Escravos)</option>
+                    </select>
+                </div>
+
+                <div class="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center bg-slate-50 hover:bg-indigo-50 hover:border-indigo-300 transition-colors cursor-pointer" id="ota-dropzone" onclick="startOtaSimulation()">
+                    <i class="fa-solid fa-file-binary text-3xl text-slate-400 mb-2"></i>
+                    <p class="text-sm font-bold text-slate-700">Selecione o arquivo .bin</p>
+                    <p class="text-[10px] text-slate-500 mt-1">Clique para iniciar a simulação flash</p>
+                </div>
+
+                <!-- Barra de Progresso (Oculta por padrão) -->
+                <div id="ota-progress-container" class="hidden space-y-2 mt-4">
+                    <div class="flex justify-between text-[10px] font-bold text-slate-500 uppercase">
+                        <span id="ota-status-text">Enviando pacotes...</span>
+                        <span id="ota-percentage">0%</span>
+                    </div>
+                    <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div id="ota-bar" class="h-full bg-indigo-600 w-0 transition-all duration-300"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // Adicionar Log no Terminal
+        function addLog(msg, type = 'info') {
+            const term = document.getElementById('terminal-content');
+            const time = new Date().toLocaleTimeString('pt-BR');
+            const cursor = term.lastElementChild; // O cursor piscante
+            
+            const div = document.createElement('div');
+            let typeColor = 'text-blue-400';
+            let prefix = 'INFO:';
+            
+            if(type === 'cmd') { typeColor = 'text-emerald-400'; prefix = 'CMD:'; }
+            if(type === 'alert') { typeColor = 'text-red-400'; prefix = 'ALARM:'; }
+            if(type === 'ota') { typeColor = 'text-indigo-400'; prefix = 'OTA:'; }
+            
+            div.innerHTML = `<span class="text-slate-500">[${time}]</span> <span class="${typeColor}">${prefix}</span> ${msg}`;
+            
+            term.insertBefore(div, cursor);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        // Widget Toggle
+        function toggleWidget(id) {
+            const widget = document.getElementById(id);
+            const icon = document.getElementById(id + 'Icon');
+            if (widget.classList.contains('widget-expanded')) {
+                widget.classList.remove('widget-expanded');
+                widget.classList.add('widget-collapsed');
+                icon.classList.add('rotate-180');
+            } else {
+                widget.classList.remove('widget-collapsed');
+                widget.classList.add('widget-expanded');
+                icon.classList.remove('rotate-180');
+            }
+        }
+
+        // Edição Inline (Topologia)
+        function startEdit(spanElem, originalText) {
+            const inputElem = spanElem.nextElementSibling;
+            spanElem.classList.add('hidden');
+            inputElem.classList.remove('hidden');
+            inputElem.value = originalText; // Use passed text to avoid nested HTML tags
+            inputElem.focus();
+        }
+
+        function finishEdit(inputElem) {
+            const spanElem = inputElem.previousElementSibling;
+            const newText = inputElem.value.trim();
+            if (newText !== '') {
+                // Reconstruct inner HTML to keep pencil icon
+                spanElem.innerHTML = `${newText} <i class="fa-solid fa-pen text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>`;
+                // Update onclick parameter to reflect new text
+                spanElem.setAttribute('onclick', `startEdit(this, '${newText}')`);
+                addLog(`Nome do dispositivo atualizado para: ${newText}`);
+            }
+            inputElem.classList.add('hidden');
+            spanElem.classList.remove('hidden');
+        }
+
+        // Monitor da Bomba (Estados Lógicos)
+        function setPumpState(state) {
+            const container = document.getElementById('pump-icon-container');
+            const icon = document.getElementById('pump-icon');
+            const title = document.getElementById('pump-status-title');
+            const desc = document.getElementById('pump-status-desc');
+
+            // Reset base classes
+            container.className = 'w-24 h-24 mx-auto rounded-full flex items-center justify-center transition-all duration-300';
+            icon.className = 'text-4xl';
+
+            if (state === 'standby') {
+                container.classList.add('bg-slate-100', 'text-slate-400', 'border', 'border-slate-200');
+                icon.classList.add('fa-solid', 'fa-power-off');
+                title.innerText = 'Standby';
+                title.className = 'text-2xl font-black text-slate-600 mt-4';
+                desc.innerText = 'Aguardando nível baixar.';
+                addLog('Bomba em Standby.', 'info');
+            } 
+            else if (state === 'ligada') {
+                container.classList.add('bg-blue-100', 'text-blue-600', 'shadow-xl', 'shadow-blue-200');
+                icon.classList.add('fa-solid', 'fa-cog', 'fa-spin');
+                title.innerText = 'Ligada';
+                title.className = 'text-2xl font-black text-blue-600 mt-4';
+                desc.innerText = 'Operação de abastecimento ativa.';
+                addLog('Bomba de abastecimento acionada.', 'cmd');
+            } 
+            else if (state === 'falha') {
+                container.classList.add('bg-red-100', 'text-red-600', 'shadow-[0_0_20px_rgba(239,68,68,0.4)]', 'animate-pulse');
+                icon.classList.add('fa-solid', 'fa-triangle-exclamation');
+                title.innerText = 'Falha / Desarme';
+                title.className = 'text-2xl font-black text-red-600 mt-4';
+                desc.innerText = 'Sistema de proteção acionado.';
+                addLog('FALHA detectada no contator da bomba!', 'alert');
+            }
+        }
+
+        // Modal de Controle Dinâmico
+        const modalEl = document.getElementById('controlModal');
+        const modalContent = document.getElementById('controlModalContent');
+
+        function openControlModal(deviceName, type) {
+            document.getElementById('modal-title').innerText = deviceName;
+            const body = document.getElementById('modal-body');
+
+            if (type === 'portao') {
+                body.innerHTML = `
+                    <div class="text-center space-y-5">
+                        <div class="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner border border-blue-100">
+                            <i class="fa-solid fa-door-open text-2xl"></i>
+                        </div>
+                        <p class="text-xs text-slate-500">Envio de comando para fechar o relé do escravo por exatos 3 segundos.</p>
+                        <button onclick="triggerGate()" class="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 active:scale-95 transition-all flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-bolt"></i> Acionar Pulso (3s)
+                        </button>
+                    </div>
+                `;
+            } else if (type === 'bomba') {
+                body.innerHTML = `
+                    <div class="text-center space-y-5">
+                        <div class="w-16 h-16 bg-cyan-50 text-cyan-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner border border-cyan-100">
+                            <i class="fa-solid fa-water text-2xl"></i>
+                        </div>
+                        <p class="text-xs text-slate-500">Controle de bancada. Altere o estado do atuador central.</p>
+                        <div class="grid grid-cols-2 gap-3">
+                            <button onclick="triggerPumpForce('ligada')" class="py-3 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold rounded-xl border border-blue-200 active:scale-95 transition-all">Ligar Forçado</button>
+                            <button onclick="triggerPumpForce('standby')" class="py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl border border-slate-300 active:scale-95 transition-all">Parar</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            modalEl.classList.remove('hidden');
+            modalEl.classList.add('flex');
+            setTimeout(() => {
+                modalEl.classList.remove('opacity-0');
+                modalContent.classList.remove('scale-95');
+            }, 10);
+        }
+
+        function closeControlModal() {
+            modalEl.classList.add('opacity-0');
+            modalContent.classList.add('scale-95');
+            setTimeout(() => {
+                modalEl.classList.add('hidden');
+                modalEl.classList.remove('flex');
+            }, 300);
+        }
+
+        function triggerGate() {
+            addLog('Pulso de relé (3000ms) disparado via ESP-NOW.', 'cmd');
+            closeControlModal();
+        }
+
+        function triggerPumpForce(state) {
+            setPumpState(state);
+            closeControlModal();
+        }
+
+        // Modal OTA
+        const otaModal = document.getElementById('otaModal');
+        const otaContent = document.getElementById('otaModalContent');
+
+        function openOtaModal() {
+            document.getElementById('ota-progress-container').classList.add('hidden');
+            document.getElementById('ota-dropzone').classList.remove('hidden');
+            document.getElementById('ota-bar').style.width = '0%';
+            
+            otaModal.classList.remove('hidden');
+            otaModal.classList.add('flex');
+            setTimeout(() => {
+                otaModal.classList.remove('opacity-0');
+                otaContent.classList.remove('scale-95');
+            }, 10);
+        }
+
+        function closeOtaModal() {
+            otaModal.classList.add('opacity-0');
+            otaContent.classList.add('scale-95');
+            setTimeout(() => {
+                otaModal.classList.add('hidden');
+                otaModal.classList.remove('flex');
+            }, 300);
+        }
+
+        function startOtaSimulation() {
+            document.getElementById('ota-dropzone').classList.add('hidden');
+            document.getElementById('ota-progress-container').classList.remove('hidden');
+            
+            addLog('Iniciando transferência OTA (Firmware binário)...', 'ota');
+            
+            let progress = 0;
+            const bar = document.getElementById('ota-bar');
+            const pct = document.getElementById('ota-percentage');
+            const status = document.getElementById('ota-status-text');
+            
+            const interval = setInterval(() => {
+                progress += Math.floor(Math.random() * 15) + 5;
+                if (progress > 100) progress = 100;
+                
+                bar.style.width = progress + '%';
+                pct.innerText = progress + '%';
+                
+                if (progress === 100) {
+                    clearInterval(interval);
+                    status.innerText = 'Gravação concluída. Reiniciando...';
+                    status.classList.add('text-emerald-600');
+                    addLog('Atualização OTA concluída com sucesso. Reboot executado.', 'ota');
+                    
+                    setTimeout(() => {
+                        closeOtaModal();
+                    }, 2000);
+                }
+            }, 300);
+        }
+    </script>
+</body>
+</html>
