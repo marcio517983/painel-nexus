@@ -1,0 +1,2 @@
+import{test}from'node:test';import assert from'node:assert/strict';import{deriveAdminCredentials}from'../public/admin-credentials.js';import{passwordHash}from'../server/auth.mjs';
+test('configurador local gera credenciais compatíveis com login Master',async()=>{const password='Senha de teste 12!';const d=await deriveAdminCredentials(password);assert.match(d.salt,/^[a-f0-9]{32}$/);assert.equal(d.hash,await passwordHash(password,d.salt));assert.notEqual(d.salt,(await deriveAdminCredentials(password)).salt);await assert.rejects(()=>deriveAdminCredentials('curta'));});

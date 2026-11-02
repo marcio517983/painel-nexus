@@ -1,0 +1,8 @@
+export async function deriveAdminCredentials(password,salt){if(typeof password!=='string'||password.length<12||password.length>256)throw Error('Use uma senha de 12 a 256 caracteres.');if(!salt)salt=[...crypto.getRandomValues(new Uint8Array(16))].map(x=>x.toString(16).padStart(2,'0')).join('');const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveBits']);const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:100000,hash:'SHA-256'},key,256);return{salt,hash:[...new Uint8Array(bits)].map(x=>x.toString(16).padStart(2,'0')).join('')};}
+if(typeof document!=='undefined'){
+ const $=s=>document.querySelector(s);let generation=0;
+ const clear=()=>{generation++;$('#result').hidden=true;$('#salt').value='';$('#hash').value='';};
+ for(const id of ['password','confirmation'])$('#'+id).addEventListener('input',clear);
+ $('#credentials').onsubmit=async e=>{e.preventDefault();clear();const current=generation;$('#generate').disabled=true;try{if($('#password').value!==$('#confirmation').value)throw Error('As senhas precisam ser iguais.');const d=await deriveAdminCredentials($('#password').value);if(current!==generation)return;$('#salt').value=d.salt;$('#hash').value=d.hash;$('#password').value='';$('#confirmation').value='';$('#result').hidden=false;$('#notice').textContent='Configuração gerada. Salve o salt e o hash juntos na Vercel.'}catch(e){$('#notice').textContent=e.message}finally{$('#generate').disabled=false}};
+ for(const id of ['salt','hash'])$('#copy-'+id).onclick=async()=>{try{await navigator.clipboard.writeText($('#'+id).value);$('#notice').textContent='Valor copiado.'}catch{$('#notice').textContent='Selecione o campo e copie manualmente.'}};
+}
