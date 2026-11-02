@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY,client_id TEXT NOT NULL,user_id TEXT NOT NULL,expires INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS session_expiry ON sessions(expires);
+CREATE TABLE IF NOT EXISTS login_limits (key TEXT PRIMARY KEY,attempts INTEGER NOT NULL,expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS firmware_blobs (key TEXT PRIMARY KEY, bytes BLOB NOT NULL);

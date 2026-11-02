@@ -1,0 +1,2 @@
+const token=location.hash.slice(1),central=new URLSearchParams(location.search).get('central')||'';history.replaceState(null,'',location.pathname+location.search);
+document.querySelector('#enter').onclick=async()=>{try{const r=await fetch('/api/auth/invite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,central})}),d=await r.json();if(!r.ok)throw Error(d.message);location.href='/morador.html?central='+encodeURIComponent(central)}catch(e){document.querySelector('#notice').textContent=e.message}};

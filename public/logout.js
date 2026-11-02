@@ -1,0 +1,1 @@
+document.addEventListener('click',async e=>{const a=e.target.closest('[data-logout]');if(!a)return;e.preventDefault();try{const r=await fetch('/api/auth/logout',{method:'POST'});if(!r.ok)throw Error();location.href='/'}catch{alert('Não foi possível encerrar a sessão. Tente novamente.')}});
