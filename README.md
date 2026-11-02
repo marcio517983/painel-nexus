@@ -26,7 +26,7 @@ Limites herdados: 6 módulos e 32 usuários (incluindo visitantes ativos) por S3
 | NEXUS_ADMIN_SALT | Salt gerado localmente |
 | NEXUS_ADMIN_HASH | Hash gerado localmente |
 
-`npm run admin:password` lê uma senha do terminal e gera apenas salt e hash compatíveis com o login. A entrada desse utilitário é visível: use um terminal privado. A senha não deve ser enviada em mensagens ou gravada em arquivos do projeto. Não use CPF como senha. O mínimo para senhas cadastradas na interface é 12 caracteres. O servidor não tem recuperação de senha por e-mail: o administrador pode definir nova senha para moradores/síndicos pelo cadastro; redefinir o Master exige trocar salt/hash nas variáveis de ambiente.
+`npm run admin:password` lê uma senha do terminal e gera apenas salt e hash compatíveis com o login. A entrada desse utilitário é visível: use um terminal privado. A senha não deve ser enviada em mensagens ou gravada em arquivos do projeto. Não use CPF como senha. As novas senhas devem ter de 8 a 256 caracteres, incluindo letra maiúscula, minúscula e caractere especial. Números são opcionais. O servidor não tem recuperação de senha por e-mail: o administrador pode definir nova senha para moradores/síndicos pelo cadastro; redefinir o Master exige trocar salt/hash nas variáveis de ambiente.
 
 Todas as variáveis devem estar no ambiente **Production**. Previews precisam de origem e banco próprios para não interferir na operação.
 
