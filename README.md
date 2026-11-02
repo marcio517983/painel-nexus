@@ -67,3 +67,13 @@ npm run build
 ```
 
 Os testes incluem autenticação, origem, isolamento por condomínio, RBAC, convites/revogação, bloqueio de comandos vencidos ou revogados, e o adaptador libSQL. A integração com Vercel/Turso reais e com o hardware depende das credenciais e configuração de implantação. Nenhum segredo é incluído neste repositório.
+
+## Medição de custos em operação
+
+`NEXUS_METRICS_SAMPLE_RATE` é opcional e vale `0.01` por padrão (amostra de 1% das requisições). Pode ser desativada com `0`. Uma linha `nexus_usage_sample` registra somente categoria da rota, status, duração, tamanho do corpo recebido/enviado e contadores SQL do adaptador. Não inclui e-mails, IDs de condomínio, tokens ou senhas. Grupos: gateway, resident, auth e management.
+
+**Esses contadores não são a fatura.** `dbRowsReturned` conta linhas devolvidas ao aplicativo, não todas as linhas lidas pelo motor e índices. `dbRowsAffected` também não representa necessariamente todas as escritas faturadas. Operações diretas do armazenamento de firmware não passam pelo adaptador. Tamanhos medidos não incluem cabeçalhos/TLS ou a transferência entre função e banco. Duração é tempo de atendimento, não CPU faturada. Use essas amostras para explicar padrões; confira os totais cobrados nos painéis oficiais da Vercel e do Turso.
+
+Faça um piloto de pelo menos 7 dias com uma S3, cadastros, moradores e convites representativos. Registre diariamente: centrais ativas, consultas à API, linhas lidas/escritas no Turso, armazenamento, consumo da Vercel e custo exibido pelos provedores. Separe criação/carga inicial de cadastros e envio de firmware do consumo recorrente. Projete o período para 30 dias e acrescente margem de variação antes de formar preço.
+
+O firmware de bancada atual usa consulta ao gateway a cada **4 segundos**, aproximadamente **648.000 consultas por central em 30 dias**, antes de falhas/reconexões e acessos dos usuários. Dez centrais equivalem a cerca de 6,48 milhões dessas consultas. Cada consulta pode gerar várias operações SQL. Isso não se traduz automaticamente em 648 mil linhas escritas nem em determinado preço. Esta instrumentação não altera a frequência do firmware.

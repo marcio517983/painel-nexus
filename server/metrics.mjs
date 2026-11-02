@@ -1,0 +1,3 @@
+// Application samples are diagnostic estimates, not provider billing counters.
+export function routeGroup(raw){const p=new URL(raw,'https://local.invalid').pathname;if(p.startsWith('/api/v1/gateway/'))return 'gateway';if(p.startsWith('/api/resident/'))return 'resident';if(p.startsWith('/api/auth/'))return 'auth';return 'management';}
+export function emitMetrics(raw,started,metrics,configuredRate,random=Math.random,log=console.info){const value=Number(configuredRate??.01),rate=Number.isFinite(value)?Math.min(1,Math.max(0,value)):.01;if(!rate||random()>=rate)return;log(JSON.stringify({event:'nexus_usage_sample',route:routeGroup(raw),sampleRate:rate,durationMs:Math.round(performance.now()-started),...metrics}));}
