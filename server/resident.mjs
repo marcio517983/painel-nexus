@@ -1,19 +1,20 @@
+import {disabledClient} from './hardware.mjs';
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const epoch=()=>Math.floor(Date.now()/1000);
 const one=(db,sql,...b)=>db.prepare(sql).bind(...b).first();
 const all=async(db,sql,...b)=>(await db.prepare(sql).bind(...b).all()).results;
 const run=(db,sql,...b)=>db.prepare(sql).bind(...b).run();
 export function residentValid(u,now=epoch()){return !!u&&u.active===true&&['morador','sindico','visitante'].includes(u.role)&&(u.role!=='visitante'||Number(u.expires)>now);}
-export function residentAllows(u,deviceId,c){return residentValid(u)&&(!u.parentId||(c.allowInvites&&c.users.some(p=>p.id===u.parentId&&residentValid(p)&&['morador','sindico'].includes(p.role)&&(p.role==='sindico'||u.doors.every(d=>p.doors.includes(d))))))&&c.nodes.some(n=>n.id===deviceId&&n.type==='gate')&&(u.role==='sindico'||u.doors.includes(deviceId));}
+export function residentAllows(u,deviceId,c){return !disabledClient(c)&&residentValid(u)&&(!u.parentId||(c.allowInvites&&c.users.some(p=>p.id===u.parentId&&residentValid(p)&&['morador','sindico'].includes(p.role)&&(p.role==='sindico'||u.doors.every(d=>p.doors.includes(d))))))&&c.nodes.some(n=>n.id===deviceId&&n.type==='gate'&&n.enabled!==false)&&(u.role==='sindico'||u.doors.includes(deviceId));}
 async function sameSecret(a,b){if(!a||!b)return false;const digest=async s=>new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)));const x=await digest(a),y=await digest(b);let diff=0;for(let i=0;i<x.length;i++)diff|=x[i]^y[i];return diff===0;}
 export async function residentHandle(r,env){try{
  if(!await sameSecret(r.headers.get('X-Nexus-Portal-Key'),env.RESIDENT_PORTAL_SECRET))return json({message:'Portal não autorizado.'},401);
  const url=new URL(r.url),path=url.pathname.replace('/api/v1/resident',''),cid=url.searchParams.get('central')||'',email=(r.headers.get('X-Nexus-Resident-Email')||'').trim().toLowerCase();
  if(r.method!=='GET'&&r.headers.get('Origin')!==url.origin)return json({message:'Origem inválida.'},403);
  const row=await one(env.DB,'SELECT * FROM clients WHERE id=?',cid);const c=row?JSON.parse(row.data):null,u=c?.users.find(x=>x.email.toLowerCase()===email);
- if(!residentValid(u))return json({message:'Seu e-mail não possui cadastro ativo nesta central. Solicite autorização à administração.'},403);
+ if(disabledClient(c)||!residentValid(u))return json({message:'Seu e-mail não possui cadastro ativo nesta central. Solicite autorização à administração.'},403);
  const actor='resident:'+u.id,online=epoch()-row.seen<15,telemetry=JSON.parse(row.telemetry),devices=c.nodes.filter(n=>residentAllows(u,n.id,c));
- if(path==='/dashboard'&&r.method==='GET')return json({name:u.name,role:u.role,client:{id:cid,name:c.name},online,physical:!c.simulation||!!c.benchRelays,allowInvites:!!c.allowInvites,water:u.role==='sindico'?c.nodes.filter(n=>n.type==='water').map(n=>({id:n.id,name:n.name,...telemetry.nodes?.find(t=>t.id===n.id),online:online&&!!telemetry.nodes?.find(t=>t.id===n.id)?.online})):[],devices:devices.map(n=>{const t=telemetry.nodes?.find(t=>t.id===n.id);return{id:n.id,name:n.name,online:online&&!!t?.online,state:online&&t?.online?t.state:-1};}),time:epoch()});
+ if(path==='/dashboard'&&r.method==='GET')return json({name:u.name,role:u.role,client:{id:cid,name:c.name},online,physical:true,allowInvites:!!c.allowInvites,water:u.role==='sindico'?c.nodes.filter(n=>n.type==='water').map(n=>({id:n.id,name:n.name,...telemetry.nodes?.find(t=>t.id===n.id),online:online&&!!telemetry.nodes?.find(t=>t.id===n.id)?.online})):[],devices:devices.map(n=>{const t=telemetry.nodes?.find(t=>t.id===n.id);return{id:n.id,name:n.name,online:online&&!!t?.online,state:online&&t?.online?t.state:-1};}),time:epoch()});
  if(path==='/commands'&&r.method==='POST'){
   const raw=await r.text();if(raw.length>2048)return json({message:'Dados inválidos.'},400);let b;try{b=JSON.parse(raw);}catch{return json({message:'Dados inválidos.'},400);}
   if(!residentAllows(u,b.deviceId,c))return json({message:'Portão não autorizado.'},403);

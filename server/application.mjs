@@ -47,7 +47,7 @@ export async function application(r,environment){try{
   if(sub===null)return denied();
   if(sub==='users'&&r.method==='POST'){const b=await r.clone().json();if(b.role!=='morador')return denied();}
   else if(sub.startsWith('users/')&&r.method==='PATCH'){const b=await r.clone().json(),target=u.client.users.find(v=>v.id===sub.slice(6));if(!target||target.role!=='morador'||Object.keys(b).some(k=>!['active','doors','name','email','salt','hash'].includes(k)))return denied();}
-  else if(!(r.method==='GET'&&sub==='events')&&!(r.method==='POST'&&sub==='commands')&&!(r.method==='GET'&&/^commands\/[a-f0-9-]{36}$/i.test(sub)))return denied();
+  else if(!(r.method==='GET'&&['events','pumps'].includes(sub))&&!(r.method==='POST'&&sub==='commands')&&!(r.method==='GET'&&/^commands\/[a-f0-9-]{36}$/i.test(sub)))return denied();
  }else if(u.role!=='master')return denied();
  const raw=await r.arrayBuffer();const out=await handle(forwarded(r,env,u,p+url.search,raw),env);if(out.ok&&r.method==='PATCH'&&/\/users\/[^/]+$/.test(p)){const b=JSON.parse(new TextDecoder().decode(raw));if(b.hash)await query(env,'DELETE FROM sessions WHERE client_id=? AND user_id=?',p.split('/')[4],p.split('/')[6]).run();}return out;
  }catch(e){return json({message:e.status?e.message:'Não foi possível concluir a operação.'},e.status||400)}}

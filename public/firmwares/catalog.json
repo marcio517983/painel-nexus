@@ -1,0 +1,74 @@
+[
+  {
+    "profile": "devkit-central",
+    "version": "1.1.0",
+    "chip": "esp32",
+    "flashSize": "4MB",
+    "sha256": "95542eb9a65331292557c05a2010049762660c25c87bccfac3644c16c87d9226",
+    "binaryBytes": 1176016,
+    "applicationBytes": 1110480,
+    "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
+    "archive": "devkit-central.zip",
+    "archiveSha256": "ce7c2250320c6032730116780e96d276a457110a0f615792eaec669fe287f066"
+  },
+  {
+    "profile": "devkit-hub",
+    "version": "1.1.0",
+    "chip": "esp32",
+    "flashSize": "4MB",
+    "sha256": "45755940442d42718a04b36c7e9d4b1d4927933a14edf4366277cc8a40c4176a",
+    "binaryBytes": 1182704,
+    "applicationBytes": 1117168,
+    "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
+    "archive": "devkit-hub.zip",
+    "archiveSha256": "3fbefc27527e2f8bf7425e7719c7c467e97a7c13251af10d63e28f7bcd82ab89"
+  },
+  {
+    "profile": "s3-central",
+    "version": "1.1.0",
+    "chip": "esp32s3",
+    "flashSize": "16MB",
+    "sha256": "6d8759c5af03473b155089c054eff33f0eb1ab40e547fb1a442f0c83696cf30d",
+    "binaryBytes": 1133296,
+    "applicationBytes": 1067760,
+    "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
+    "archive": "s3-central.zip",
+    "archiveSha256": "a3a0cb52851b872e367b52bd085752cea7164d4b0bddb04003e3caabf44c701a"
+  },
+  {
+    "profile": "s3-hub",
+    "version": "1.1.0",
+    "chip": "esp32s3",
+    "flashSize": "16MB",
+    "sha256": "8df0492e56ab8d692eeb43beeb58fdad2ad2d579c6ca098f83a813e9ecefdffd",
+    "binaryBytes": 1139728,
+    "applicationBytes": 1074192,
+    "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
+    "archive": "s3-hub.zip",
+    "archiveSha256": "6dda036e93fa50996102fce247ba5c1d3271d8475f79e0f40a17cb495bf52966"
+  },
+  {
+    "profile": "devkit-slave",
+    "version": "1.1.0",
+    "chip": "esp32",
+    "flashSize": "4MB",
+    "sha256": "03f234c618f889284c7bccb36114eebeef3c2ef45315c54baf8201546370f89f",
+    "binaryBytes": 837392,
+    "applicationBytes": 771856,
+    "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
+    "archive": "devkit-slave.zip",
+    "archiveSha256": "23faf8d2a33b19d2d7ea8a7f08ac8eb7c5b98f538cee8ca229bacaa08efb70d5"
+  },
+  {
+    "profile": "c3-slave",
+    "version": "1.1.0",
+    "chip": "esp32c3",
+    "flashSize": "4MB",
+    "sha256": "8de1c1ed7f544b0a2d359b76fe64a20e4be262d4a582d32229643df2264d3dac",
+    "binaryBytes": 847280,
+    "applicationBytes": 781744,
+    "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
+    "archive": "c3-slave.zip",
+    "archiveSha256": "633274acdb9cfeee70f8ffa95fa4df9ddf3141de1f4608d3ec2094ec7633eacc"
+  }
+]

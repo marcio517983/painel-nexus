@@ -1,85 +1,94 @@
-# NexusMaster — Vercel
+# NexusMaster — clientes e instalações físicas
 
-Aplicação com servidor Node, login próprio e banco Turso/libSQL. O painel e o portal reutilizam a versão validada na bancada; o HTML antigo em `nexus-iot/index.html` redireciona para o novo login.
+Servidor Node.js na Vercel, banco Turso/libSQL e firmwares físicos em `firmware/family`. O HTML anterior em `nexus-iot/index.html` redireciona para o login atual. Não há cadastro de simulador, acionamentos fictícios nem telemetria gerada por software no fluxo operacional.
 
-## Estado desta entrega
+## Papéis e perfis
 
-Implementado: Master com clientes e módulos; síndico limitado ao próprio condomínio e à gestão de moradores; login por e-mail/senha; portões autorizados para moradores; convites temporários revogáveis; histórico restrito a síndico/Master; recebimento de nível, ciclos e tempo acumulado de bomba; protocolo HTTPS de gateway e OTA assinada da S3. A leitura de ciclos/horas é exibida somente se recebida da placa, nunca estimada por comandos.
+| Firmware | Papel | Relés locais | Reeds | Monitor da bomba |
+|---|---|---:|---:|---:|
+| devkit-central | Central direta | 4 | 4 | 1 |
+| devkit-hub | Central direta + até 6 escravos | 4 | 4 | 1 |
+| s3-central | Central direta | 4 | 4 | 1 |
+| s3-hub | Central direta + até 6 escravos | 4 | 4 | 1 |
+| devkit-slave | Somente escravo | 4 | 4 | 1 |
+| c3-slave | Somente escravo | 2 | 2 | Nenhum |
 
-Limites herdados: 6 módulos e 32 usuários (incluindo visitantes ativos) por S3; máximo de 7 dias por convite; sessão de 8 horas; comandos expiram em 8 segundos e não têm reenvio automático. O cadastro permite indicar ESP32 DevKit, C3 e ESP8266; isso **não cria nem valida firmware para cada modelo**. O firmware físico validado anteriormente é o da bancada S3 + DevKit. Bomba/C3 e hall/ESP8266 exigem firmware e teste específicos. Convites por link desta versão são de acesso online; não há vínculo criptográfico ao aparelho do visitante nem conversão automática para o portal local da S3.
+S3 nunca é escravo e C3 nunca é central. Só centrais recebem credenciais HTTPS do Master. Escravos usam ESP-NOW criptografado e chaves individuais de pareamento, transferidas via USB. As chaves de rádio não são armazenadas no Master. Veja `firmware/family/LEIA-ME.md` para pinagem, pacotes e instalação.
 
-## Configurar Vercel
+Master administra clientes, perfis, mapeamento físico e síndicos. Síndico administra moradores e acompanha acessos/monitoramento somente do próprio condomínio. Morador recebe apenas acessos autorizados e convites temporários; histórico de atividades não é exposto a moradores ou visitantes. Convites online herdam apenas permissões do anfitrião e são revogáveis, com validade máxima de sete dias.
 
-1. O projeto deve importar `marcio517983/painel-nexus`, branch `main`.
-2. **Root Directory: raiz do repositório**, vazio ou `.`. Não usar `nexus-iot`.
-3. Framework Preset: **Other**; Build Command: `npm run build`; Output Directory: `dist`; Install Command: `npm ci`; Node.js 22.x.
-4. Criar um banco Turso e configurar as variáveis abaixo somente no servidor da Vercel. Nenhum segredo deve entrar no GitHub ou em arquivos públicos.
-5. Aplicar as migrações com `npm run db:migrate` em terminal confiável com `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` no ambiente. O script é idempotente e não importa clientes existentes.
-6. Fazer o deploy e validar `/`, login Master e criação de central antes de alterar qualquer placa.
+## Cadastro de um cliente
 
-| Variável | Valor |
-| --- | --- |
+1. Master → Novo cliente: nome, endereço e versão da central; guardar provision.json privado.
+2. Cadastrar os acessos lógicos, por exemplo Portão de veículos, Portão de pedestres e Porta do hall, ou o monitor da bomba.
+3. Atribuir cada acesso a um canal da própria central ou a um canal do escravo (modelo e MAC STA). Não é permitido atribuir dois acessos ao mesmo canal.
+4. Instalar o firmware correspondente e configurar por USB somente os canais realmente conectados. Em versões hub, parear os escravos pelos dois cabos USB.
+5. Cadastrar síndico e moradores e liberar os acessos individuais.
+6. Conferir sincronização, sensores, fim de pulso, reinícios e reconexões na instalação antes de disponibilizar aos usuários.
+
+Criar cadastro ou concluir uma compilação não valida fisicamente o conjunto. O Master não garante que a bobina do relé atracou nem que um portão abriu: recebe o fim do pulso da placa e, separadamente, o reed. Um único reed indica fechado/não fechado, não abertura total. Os dispositivos de segurança do automatizador permanecem independentes.
+
+## Canais, desativação e reserva
+
+A habilitação do canal exige configuração local por USB e habilitação no Master. Permissões dos usuários apontam ao ID lógico, não ao GPIO. Desabilitar ou remapear cancela comandos ainda na fila, preservando nome/ID e permissões. Transferência física dos fios é manual, com o equipamento desenergizado; não há repetição de pulso nem failover automático quando falta confirmação.
+
+Um comando só é criado com telemetria recente. Nas instalações com novo perfil, o gateway só recebe comandos depois de confirmar a revisão atual. O firmware verifica destino, revisão e validade. Os comandos expiram em oito segundos. Ausência de ACK não autoriza repetir automaticamente.
+
+## Bomba
+
+A entrada dedicada mede o sinal de confirmação de funcionamento, sem inferir horas a partir de comandos. Tempo acumulado e partidas ficam na NVS da placa, com checkpoint de até sessenta segundos e salvamento nas transições. Reboot com sinal já ativo não adiciona partida falsa; tempo com o ESP desligado não é estimado. Não usar como medidor certificado.
+
+Turso mantém `pump_totals` por cliente, função e identidade da memória do contador (`counter_epoch`), e `pump_samples` para histórico. O servidor recebe snapshots, registra transições observadas e amostras de até um minuto no estado contínuo; não promete a duração individual de todos os ciclos ocorridos entre consultas ou durante longos períodos offline. Contadores decrescentes na mesma identidade são recusados. Limpar NVS cria outra identidade, preservada separadamente no banco.
+
+## Limites desta versão
+
+- Até seis escravos e 35 funções lógicas por central; até quatro portas por DevKit/S3 e duas por C3.
+- Até 32 cadastros incluindo visitantes ativos e configuração serializada de até 22 KB. **Ainda não atende 60 usuários em uma central.** Não aumentar esses limites sem medir memória e revisar o protocolo de sincronização.
+- Sessão online de oito horas; portal local HTTPS opcional com duas sessões e cadastros previamente sincronizados.
+- Convites de visitante são online e não fazem vínculo criptográfico ao aparelho físico.
+- Atualização de firmware por USB, com pacote específico por processador/perfil. Upload OTA sem identificação de destino está desabilitado.
+- O pacote anterior `nexus-devkit-central.zip` é legado, de dois acionadores. Os pacotes da família 1.1.0 ficam em `/firmwares/<perfil>.zip`.
+
+## Vercel e banco
+
+Projeto `marcio517983/painel-nexus`, branch `main`, raiz do repositório (não `nexus-iot`). Framework Other, Node.js 22.x, instalação `npm ci`, build `npm run build`, saída `dist`.
+
+| Variável de produção | Finalidade |
+|---|---|
 | TURSO_DATABASE_URL | URL libsql do banco |
-| TURSO_AUTH_TOKEN | Token de acesso do banco |
-| NEXUS_ORIGIN | Origem HTTPS final do projeto, sem barra final e sem caminho |
-| NEXUS_ADMIN_EMAIL | E-mail do administrador Master |
-| NEXUS_ADMIN_SALT | Salt gerado localmente |
-| NEXUS_ADMIN_HASH | Hash gerado localmente |
+| TURSO_AUTH_TOKEN | Token de banco, segredo |
+| NEXUS_ORIGIN | Origem HTTPS principal, sem caminho ou barra final |
+| NEXUS_ADMIN_EMAIL | Login Master |
+| NEXUS_ADMIN_SALT | Salt gerado no navegador ou utilitário privado |
+| NEXUS_ADMIN_HASH | Hash PBKDF2 gerado junto do salt |
 
-`npm run admin:password` lê uma senha do terminal e gera apenas salt e hash compatíveis com o login. A entrada desse utilitário é visível: use um terminal privado. A senha não deve ser enviada em mensagens ou gravada em arquivos do projeto. Não use CPF como senha. As novas senhas devem ter de 8 a 256 caracteres, incluindo letra maiúscula, minúscula e caractere especial. Números são opcionais. O servidor não tem recuperação de senha por e-mail: o administrador pode definir nova senha para moradores/síndicos pelo cadastro; redefinir o Master exige trocar salt/hash nas variáveis de ambiente.
+A senha Master não vai para a placa nem para o GitHub. Use `/configurar-admin.html` ou `npm run admin:password` em terminal privado. Novas senhas: 8–256 caracteres, maiúscula, minúscula e especial; números opcionais. Salt/hash devem ser salvos juntos. Não há recuperação por e-mail nesta versão.
 
-Todas as variáveis devem estar no ambiente **Production**. Previews precisam de origem e banco próprios para não interferir na operação.
+O endereço principal da produção é acessível sem login da Vercel, mantendo login Nexus e autenticação individual do gateway. URLs de deploy e previews continuam protegidas. Previews devem ter origem e banco separados; builds de preview não executam migrações no banco compartilhado.
 
-## Primeiro uso
+## Migrações e dados existentes
 
-- Master: entrar em `/` com o e-mail e a senha definidos acima; não é necessário código de condomínio.
-- Criar um cliente, salvar o `provision.json` e cadastrar os módulos por nome, MAC STA, placa e função.
-- Cadastrar o síndico. Compartilhar `https://SEU-DOMINIO/?central=ID_DO_CLIENTE`.
-- Síndico pode cadastrar/editar/revogar moradores do seu condomínio; não cria outros síndicos ou equipamentos.
-- Morador entra pelo mesmo link, vê somente seus acessos e cria convites quando `allowInvites` estiver habilitado nas configurações do cliente.
-- Link de visitante é secreto, funciona até expirar ou ser revogado e não exige senha. Quem tiver o link poderá usar os acessos liberados. Revogar o anfitrião ou retirar suas permissões também invalida os convidados dependentes.
-- Síndico acessa o portal do morador para convites e monitoração simplificada; o Master é o painel de gestão completa.
+`npm run build` executa as migrações idempotentes somente quando `VERCEL_ENV=production`, antes de publicar. Elas criam tabelas necessárias e arquivam exclusivamente clientes explicitamente marcados `simulation=true`, retirando-os da lista ativa, invalidando suas sessões e bloqueando o gateway. Seus dados de auditoria são preservados no banco; nenhum cliente físico é apagado ou convertido em simulador.
 
-## Migração das placas e dos cadastros existentes
+Clientes físicos existentes mantêm IDs, usuários e credenciais. Perfis anteriores permanecem compatíveis com seu provisionamento original; editar para um novo perfil exige instalar/configurar o firmware correspondente. Não reaproveitar IDs de módulos sem conferir a correspondência física. Cadastros do banco Cloudflare anterior não são importados automaticamente para o Turso.
 
-O banco deste projeto é independente do banco Cloudflare da versão hospedada no ChatGPT. Não há importação automática. **Não apague a central atual.** Planeje uma transferência dos cadastros e IDs ou uma nova provisão controlada em bancada antes de migrar a operação.
+## Segurança e verificação
 
-A API mantém `/api/v1/gateway/poll`, autenticação por token individual da central e os campos do protocolo existente. Para apontar uma S3 à Vercel é preciso atualizar a origem/credencial de provisão e conferir a cadeia TLS aceita pelo firmware. Não desabilitar verificação de certificado. O teste completo com placa física no novo domínio ainda é obrigatório; passar os testes de servidor não confirma abertura física de fechadura.
-
-Não apontar uma placa física para IDs recém-criados sem conferir a correspondência entre módulo, relé e sensores. O cadastro da placa identifica o hardware, mas a configuração de ESP-NOW e pinagem continua sendo parte do firmware/provisionamento. A migração não altera automaticamente os firmwares já instalados.
-
-## Persistência e segurança
-
-- Turso guarda configurações, comandos, atividades, limites de login, sessões e binários OTA. Nenhum dado operacional depende do disco temporário da função Vercel.
-- Alterações são executadas em transação no servidor. O token de gateway é independente das sessões web.
-- Sessões opacas em cookie HttpOnly/Secure/SameSite=Strict; validação de origem para mutações; credenciais derivadas por PBKDF2 compatíveis com a S3; bloqueio de tentativas persistente no banco.
-- O servidor ignora identidade `oai-*` fornecida pelo navegador; usuários são reconhecidos pela sessão própria.
-- Cada consulta de residente verifica cadastro ativo e permissão atual. O gateway revalida comandos de residentes/visitantes antes da entrega.
-- OTA aceita firmware e assinatura RSA compatíveis com a S3; a assinatura continua sendo validada no firmware antes da instalação.
-- O indicador online é baseado em contato recente (15 s), com atualização da interface a cada 5 s. Isso não é garantia de entrega instantânea.
-
-## Desenvolvimento e validação
+Sessões opacas em cookies HttpOnly/Secure/SameSite=Strict; validação de origem em mutações web; PBKDF2, bloqueio persistente de tentativas e separação por condomínio. Identidade enviada pelo navegador em headers `oai-*` é ignorada. Revogação de usuário/permissão é revalidada antes da entrega do comando. O firmware usa TLS com raízes de confiança; nunca desativar a validação para resolver conexão.
 
 ```sh
 npm ci
 npm test
 npm run build
+c++ -std=c++17 -Wall -Wextra -Werror tests/physical-io.test.cpp -o /tmp/nexus-physical-test
+/tmp/nexus-physical-test
+python -m platformio run -d firmware/family
 ```
 
-Os testes incluem autenticação, origem, isolamento por condomínio, RBAC, convites/revogação, bloqueio de comandos vencidos ou revogados, e o adaptador libSQL. A integração com Vercel/Turso reais e com o hardware depende das credenciais e configuração de implantação. Nenhum segredo é incluído neste repositório.
+Testes de software cobrem autenticação, isolamento de usuários/clientes, revogação, comandos expirados, perfis/canais, remapeamento, migrações, persistência da bomba e lógica de filtragem/contagem. Não equivalem a testes no hardware. O aceite físico detalhado está no LEIA-ME dos pacotes; registrar o resultado por instalação antes de operar fechaduras reais.
 
-## Medição de custos em operação
+## Consumo
 
-`NEXUS_METRICS_SAMPLE_RATE` é opcional e vale `0.01` por padrão (amostra de 1% das requisições). Pode ser desativada com `0`. Uma linha `nexus_usage_sample` registra somente categoria da rota, status, duração, tamanho do corpo recebido/enviado e contadores SQL do adaptador. Não inclui e-mails, IDs de condomínio, tokens ou senhas. Grupos: gateway, resident, auth e management.
+`NEXUS_METRICS_SAMPLE_RATE` opcional, padrão 0.01. Logs amostrados incluem categoria da rota, status, duração, bytes e contadores SQL; não incluem e-mails, tokens, senhas, IDs de cliente ou parâmetros SQL. Linhas retornadas/afetadas não são a cobrança exata do provedor.
 
-**Esses contadores não são a fatura.** `dbRowsReturned` conta linhas devolvidas ao aplicativo, não todas as linhas lidas pelo motor e índices. `dbRowsAffected` também não representa necessariamente todas as escritas faturadas. Operações diretas do armazenamento de firmware não passam pelo adaptador. Tamanhos medidos não incluem cabeçalhos/TLS ou a transferência entre função e banco. Duração é tempo de atendimento, não CPU faturada. Use essas amostras para explicar padrões; confira os totais cobrados nos painéis oficiais da Vercel e do Turso.
-
-Faça um piloto de pelo menos 7 dias com uma S3, cadastros, moradores e convites representativos. Registre diariamente: centrais ativas, consultas à API, linhas lidas/escritas no Turso, armazenamento, consumo da Vercel e custo exibido pelos provedores. Separe criação/carga inicial de cadastros e envio de firmware do consumo recorrente. Projete o período para 30 dias e acrescente margem de variação antes de formar preço.
-
-O firmware de bancada atual usa consulta ao gateway a cada **4 segundos**, aproximadamente **648.000 consultas por central em 30 dias**, antes de falhas/reconexões e acessos dos usuários. Dez centrais equivalem a cerca de 6,48 milhões dessas consultas. Cada consulta pode gerar várias operações SQL. Isso não se traduz automaticamente em 648 mil linhas escritas nem em determinado preço. Esta instrumentação não altera a frequência do firmware.
-
-Em publicações de produção na Vercel, o build executa as migrações idempotentes antes de publicar. Builds locais e de preview não alteram o banco compartilhado. Se a conexão ou o token do Turso falhar, a publicação falha sem substituir a versão ativa.
-
-## Central ESP32 DevKit com dois acionadores locais
-
-O pacote `public/nexus-devkit-central.zip` contém fontes, ferramentas e firmware compilado para ESP32 clássico de 4 MB. O painel aceita dois canais locais sem MAC (GPIO25/23, pulso de 1 segundo). Não misturar com escravos. Estado dos portões desconhecido nesta variante; sensores e estabilidade em hardware ainda precisam ser validados. Flash de aplicação: 1.076.021 bytes; RAM estática: 50.180 bytes. As alocações dinâmicas de TLS/JSON precisam ser medidas na bancada. Consulte o LEIA-ME dentro do pacote antes de gravar.
+Consulta da central a cada quatro segundos: cerca de 648.000 requisições em trinta dias, além dos acessos web. Cada consulta envolve várias operações SQL; acompanhar consumo real do Turso e da Vercel por pelo menos sete dias antes de precificar ou ampliar. A bomba acrescenta consultas de contador e escritas de amostras, normalmente uma vez por minuto ou nas transições observadas.
