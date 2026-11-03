@@ -79,3 +79,7 @@ Faça um piloto de pelo menos 7 dias com uma S3, cadastros, moradores e convites
 O firmware de bancada atual usa consulta ao gateway a cada **4 segundos**, aproximadamente **648.000 consultas por central em 30 dias**, antes de falhas/reconexões e acessos dos usuários. Dez centrais equivalem a cerca de 6,48 milhões dessas consultas. Cada consulta pode gerar várias operações SQL. Isso não se traduz automaticamente em 648 mil linhas escritas nem em determinado preço. Esta instrumentação não altera a frequência do firmware.
 
 Em publicações de produção na Vercel, o build executa as migrações idempotentes antes de publicar. Builds locais e de preview não alteram o banco compartilhado. Se a conexão ou o token do Turso falhar, a publicação falha sem substituir a versão ativa.
+
+## Central ESP32 DevKit com dois acionadores locais
+
+O pacote `public/nexus-devkit-central.zip` contém fontes, ferramentas e firmware compilado para ESP32 clássico de 4 MB. O painel aceita dois canais locais sem MAC (GPIO25/23, pulso de 1 segundo). Não misturar com escravos. Estado dos portões desconhecido nesta variante; sensores e estabilidade em hardware ainda precisam ser validados. Flash de aplicação: 1.076.021 bytes; RAM estática: 50.180 bytes. As alocações dinâmicas de TLS/JSON precisam ser medidas na bancada. Consulte o LEIA-ME dentro do pacote antes de gravar.
