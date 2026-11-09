@@ -25,3 +25,22 @@ test('revogação do anfitrião impede entrega de pulso de visitante e ciclos s�
  assert.equal((await poll(e,gateway,{nodes})).data.commands.length,0);assert.equal(e.sqlite.prepare('SELECT status FROM commands WHERE id=?').get(cmd.data.commandId).status,'failed');
  const telemetry=JSON.parse(e.sqlite.prepare('SELECT telemetry FROM clients WHERE id=?').get(c.id).telemetry);assert.equal(telemetry.nodes[2].cycles,3);assert.equal(telemetry.nodes[2].runtimeSeconds,7200);
 });
+
+test('somente Master renova chave preservando cadastros e invalida chave anterior',async()=>{
+ const e=await setup(),owner=await master(e),c=await populated(e,owner),cid=c.id;
+ const oldKey='fixture-old-gateway-key';e.sqlite.prepare('UPDATE clients SET token_hash=? WHERE id=?').run((await import('../server/auth.mjs')).digest(oldKey),cid);
+ const queued=crypto.randomUUID(),sent=crypto.randomUUID();for(const [id,status] of [[queued,'queued'],[sent,'sent']])e.sqlite.prepare('INSERT INTO commands VALUES(?,?,?,?,?,?,?,?)').run(id,cid,c.nodes[0].id,'Master',1,9999999999,status,'');
+ const before=e.sqlite.prepare('SELECT * FROM clients WHERE id=?').get(cid);
+ const syndic=await member(e,c,'s@example.test');
+ assert.equal((await app(e,'/api/v1/clients/'+cid+'/credentials','POST',{confirm:true},syndic)).status,403);
+ assert.equal((await app(e,'/api/v1/clients/'+cid+'/credentials','POST',{confirm:true})).status,401);
+ assert.equal((await app(e,'/api/v1/clients/'+cid+'/credentials','POST',{},owner)).status,400);
+ const result=await app(e,'/api/v1/clients/'+cid+'/credentials','POST',{confirm:true},owner);
+ assert.equal(result.status,200);assert.equal(result.data.gatewayId,cid);assert.equal(result.data.cloudUrl,e.NEXUS_ORIGIN);assert.match(result.data.gatewayToken,/^[a-f0-9]{64}$/);
+ const after=e.sqlite.prepare('SELECT * FROM clients WHERE id=?').get(cid);
+ assert.equal(after.data,before.data);assert.equal(after.revision,before.revision);assert.notEqual(after.token_hash,before.token_hash);assert.equal(after.seen,0);assert.equal(after.applied,0);
+ assert.equal(e.sqlite.prepare('SELECT status FROM commands WHERE id=?').get(queued).status,'failed');assert.equal(e.sqlite.prepare('SELECT status FROM commands WHERE id=?').get(sent).status,'unknown');
+ assert.equal((await app(e,'/api/v1/gateway/poll','POST',{nodes:[]},'',{'X-Gateway-Id':cid,Authorization:'Bearer '+oldKey})).status,401);
+ assert.equal((await app(e,'/api/v1/gateway/poll','POST',{nodes:[]},'',{'X-Gateway-Id':cid,Authorization:'Bearer '+result.data.gatewayToken})).status,200);
+ assert.equal(JSON.stringify((await app(e,'/api/v1/clients','GET',undefined,owner)).data).includes(result.data.gatewayToken),false);
+});

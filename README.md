@@ -92,3 +92,7 @@ Testes de software cobrem autenticação, isolamento de usuários/clientes, revo
 `NEXUS_METRICS_SAMPLE_RATE` opcional, padrão 0.01. Logs amostrados incluem categoria da rota, status, duração, bytes e contadores SQL; não incluem e-mails, tokens, senhas, IDs de cliente ou parâmetros SQL. Linhas retornadas/afetadas não são a cobrança exata do provedor.
 
 Consulta da central a cada quatro segundos: cerca de 648.000 requisições em trinta dias, além dos acessos web. Cada consulta envolve várias operações SQL; acompanhar consumo real do Turso e da Vercel por pelo menos sete dias antes de precificar ou ampliar. A bomba acrescenta consultas de contador e escritas de amostras, normalmente uma vez por minuto ou nas transições observadas.
+
+## Reemitir provision.json
+
+No Master, selecione o condomínio → Firmwares → Gerar novo provision.json. A ação exige sessão Master e confirmação, substitui a chave anterior e preserva IDs, portões, pessoas e permissões. Filas anteriores são encerradas sem reenviar pulsos. Baixe e guarde o arquivo privado, substitua o arquivo antigo e configure a central por USB. O provisionamento de um Master antigo em chatgpt.site não é transferido alterando apenas a URL.
