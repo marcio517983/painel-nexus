@@ -77,3 +77,8 @@ Monitore `heap`, `minHeap` e `maxBlock` no serial por pelo menos 30 minutos com 
 ## Correção de memória das centrais 1.1.1
 
 A central serializa e libera o documento de envio antes de iniciar TLS, e encerra TLS antes de analisar a resposta JSON. A verificação distingue memória livre total (reserva de 85 KB) de maior bloco contínuo (24 KB); não exige mais um bloco único de 65 KB. Respostas, inclusive chunked, são limitadas a 32 KB. Falha de conexão, alocação ou parsing não autoriza pulso nem repetição automática. STATUS continua informando heap, minHeap e maxBlock. A compilação não comprova estabilidade no hardware: conferir HTTPS 200 e memória na placa após atualizar.
+
+
+### Centrais DevKit 1.1.2
+
+A resposta HTTPS usa um pool JSON limitado ao maior bloco livre menos 2 KB, até 48 KB. Evita falha de alocação fixa de 48 KB com blocos de 42–47 KB observados no DevKit. Falha de parsing continua impedindo processamento de comandos; CLOUD_OK identifica resposta validada, enquanto HTTPS 200 sozinho confirma apenas a resposta HTTP. Conferir na placa a sincronização e estabilidade após gravar.

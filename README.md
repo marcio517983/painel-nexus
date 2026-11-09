@@ -102,3 +102,8 @@ No Master, selecione o condomínio → Firmwares → Gerar novo provision.json. 
 Corrige o adiamento permanente de HTTPS com heap total suficiente e bloco contínuo menor que 65 KB. Envio JSON e resposta são liberados em fases distintas do TLS. Resposta HTTP limitada a 32 KB. Os novos pacotes usam gravação em duas faixas, excluindo a partição NVS validada no manifesto para preservar Wi-Fi, chave, máscaras físicas e contadores durante atualização dentro desta família. Pacotes antigos, gravados como um único binário de offset zero, podiam apagar a NVS; por isso copie provision.json para a pasta privada e guarde-o antes de atualizar. Ainda é necessário conferir HTTPS 200 e estabilidade na placa.
 
 Validação desta correção: `python tests/installer.test.py`; `c++ -std=c++17 -Wall -Wextra -Werror -Itests/native tests/cloud-response.test.cpp -o /tmp/nexus-response-test && /tmp/nexus-response-test`. O stub Arduino é exclusivo dos testes nativos, não é incluído no firmware. Para publicar só um perfil reconstruído: `python scripts/package-firmware.py --profile devkit-central`.
+
+
+### Centrais DevKit 1.1.2
+
+A resposta HTTPS usa um pool JSON limitado ao maior bloco livre menos 2 KB, até 48 KB. Evita falha de alocação fixa de 48 KB com blocos de 42–47 KB observados no DevKit. Falha de parsing continua impedindo processamento de comandos; CLOUD_OK identifica resposta validada, enquanto HTTPS 200 sozinho confirma apenas a resposta HTTP. Conferir na placa a sincronização e estabilidade após gravar.

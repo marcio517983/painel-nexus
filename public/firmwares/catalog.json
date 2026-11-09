@@ -50,29 +50,29 @@
   {
     "nvsOffset": 36864,
     "nvsSize": 20480,
-    "profile": "devkit-hub",
-    "version": "1.1.1",
+    "profile": "devkit-central",
+    "version": "1.1.2",
     "chip": "esp32",
     "flashSize": "4MB",
-    "sha256": "aa6d912414f9c8cab37ffae6a2e9952bbdd1354aa99847132ca27de12e585642",
-    "binaryBytes": 1183536,
-    "applicationBytes": 1118000,
+    "sha256": "5d3a6bcbab37e3f74b331241fd89e590fdc2dc0ed7639efa6dffc42618c8b103",
+    "binaryBytes": 1177056,
+    "applicationBytes": 1111520,
     "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
-    "archive": "devkit-hub.zip",
-    "archiveSha256": "b927adf767a8da7faf5fd9a498fd4e5fc2d9a120f767711e9117424c6adad8fc"
+    "archive": "devkit-central.zip",
+    "archiveSha256": "0cf524f1278e162f87c309a5d7a44bc66e666ea493651477d1c2c5fe6e012bbc"
   },
   {
     "nvsOffset": 36864,
     "nvsSize": 20480,
-    "profile": "devkit-central",
-    "version": "1.1.1",
+    "profile": "devkit-hub",
+    "version": "1.1.2",
     "chip": "esp32",
     "flashSize": "4MB",
-    "sha256": "105a44e3194ed40ed8ce681166426b4c8f93244588fb097d615b7457ae972282",
-    "binaryBytes": 1176816,
-    "applicationBytes": 1111280,
+    "sha256": "b5519832d0c9cddef396a2ff76872cda143103d764ce05d0688cd4b591b7f8f3",
+    "binaryBytes": 1183760,
+    "applicationBytes": 1118224,
     "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
-    "archive": "devkit-central.zip",
-    "archiveSha256": "f9b7eaff99edcd8dcfd6a0df72536e078b3408df50bab957bff82a52f3df5159"
+    "archive": "devkit-hub.zip",
+    "archiveSha256": "6667d866054a8db7cc9df884cb80ab473386ab2db3b5f0cdd517f47f61ba124f"
   }
 ]
