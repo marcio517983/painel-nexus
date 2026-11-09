@@ -36,7 +36,7 @@ python -m pip install esptool==4.5.1 pyserial==3.5 cryptography
 python gravar.py --porta COM4
 ```
 
-O script confere SHA-256 do binário e o esptool confere o processador. Não faz erase_flash completo: dados NVS podem ser preservados; confira as habilitações ao trocar de função. Uma central e um escravo possuem namespaces de credenciais distintos.
+O script confere SHA-256 do binário e o esptool confere o processador. O instalador desta revisão grava duas faixas e preserva a partição NVS indicada no manifesto; confira as habilitações ao trocar de função. Não use um comando de gravação única do binário completo se pretende preservar NVS. Uma central e um escravo possuem namespaces de credenciais distintos.
 
 Para uma central, baixe o provision.json no Master e copie para a pasta privada do pacote:
 
@@ -73,3 +73,7 @@ Limites atuais: até 6 escravos, 35 funções (acionadores/monitores), 32 cadast
 Compilação e testes de software não validam a fiação, o módulo de relé nem a estabilidade do conjunto real. Com contatos de carga desconectados, confira cada canal, duração do pulso, repouso após reset e mudança de estado do reed. Verifique o feedback da bomba contra uma referência de tempo. Teste comando remoto e local, todos os escravos, Wi-Fi/radio fora de alcance, reconexão e reinício, sem repetição automática de pulso.
 
 Monitore `heap`, `minHeap` e `maxBlock` no serial por pelo menos 30 minutos com HTTPS local e online simultâneos. Se memória estiver insuficiente, a central adia a comunicação e não executa novos comandos remotos; investigue antes de instalar. Só conecte o controle do portão após conferir intertravamentos e dispositivos de proteção próprios do automatizador. MKN New Home: contato COM–NA entre GND e BOT. Ultra Rev.3: contato COM–NA entre +12 V e BOT, sem usar NF; esses contatos ficam eletricamente separados dos GPIOs.
+
+## Correção de memória das centrais 1.1.1
+
+A central serializa e libera o documento de envio antes de iniciar TLS, e encerra TLS antes de analisar a resposta JSON. A verificação distingue memória livre total (reserva de 85 KB) de maior bloco contínuo (24 KB); não exige mais um bloco único de 65 KB. Respostas, inclusive chunked, são limitadas a 32 KB. Falha de conexão, alocação ou parsing não autoriza pulso nem repetição automática. STATUS continua informando heap, minHeap e maxBlock. A compilação não comprova estabilidade no hardware: conferir HTTPS 200 e memória na placa após atualizar.

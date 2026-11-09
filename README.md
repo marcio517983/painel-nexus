@@ -96,3 +96,9 @@ Consulta da central a cada quatro segundos: cerca de 648.000 requisições em tr
 ## Reemitir provision.json
 
 No Master, selecione o condomínio → Firmwares → Gerar novo provision.json. A ação exige sessão Master e confirmação, substitui a chave anterior e preserva IDs, portões, pessoas e permissões. Filas anteriores são encerradas sem reenviar pulsos. Baixe e guarde o arquivo privado, substitua o arquivo antigo e configure a central por USB. O provisionamento de um Master antigo em chatgpt.site não é transferido alterando apenas a URL.
+
+## Correção DevKit Central 1.1.1
+
+Corrige o adiamento permanente de HTTPS com heap total suficiente e bloco contínuo menor que 65 KB. Envio JSON e resposta são liberados em fases distintas do TLS. Resposta HTTP limitada a 32 KB. Os novos pacotes usam gravação em duas faixas, excluindo a partição NVS validada no manifesto para preservar Wi-Fi, chave, máscaras físicas e contadores durante atualização dentro desta família. Pacotes antigos, gravados como um único binário de offset zero, podiam apagar a NVS; por isso copie provision.json para a pasta privada e guarde-o antes de atualizar. Ainda é necessário conferir HTTPS 200 e estabilidade na placa.
+
+Validação desta correção: `python tests/installer.test.py`; `c++ -std=c++17 -Wall -Wextra -Werror -Itests/native tests/cloud-response.test.cpp -o /tmp/nexus-response-test && /tmp/nexus-response-test`. O stub Arduino é exclusivo dos testes nativos, não é incluído no firmware. Para publicar só um perfil reconstruído: `python scripts/package-firmware.py --profile devkit-central`.

@@ -1,29 +1,5 @@
 [
   {
-    "profile": "devkit-central",
-    "version": "1.1.0",
-    "chip": "esp32",
-    "flashSize": "4MB",
-    "sha256": "95542eb9a65331292557c05a2010049762660c25c87bccfac3644c16c87d9226",
-    "binaryBytes": 1176016,
-    "applicationBytes": 1110480,
-    "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
-    "archive": "devkit-central.zip",
-    "archiveSha256": "ce7c2250320c6032730116780e96d276a457110a0f615792eaec669fe287f066"
-  },
-  {
-    "profile": "devkit-hub",
-    "version": "1.1.0",
-    "chip": "esp32",
-    "flashSize": "4MB",
-    "sha256": "45755940442d42718a04b36c7e9d4b1d4927933a14edf4366277cc8a40c4176a",
-    "binaryBytes": 1182704,
-    "applicationBytes": 1117168,
-    "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
-    "archive": "devkit-hub.zip",
-    "archiveSha256": "3fbefc27527e2f8bf7425e7719c7c467e97a7c13251af10d63e28f7bcd82ab89"
-  },
-  {
     "profile": "s3-central",
     "version": "1.1.0",
     "chip": "esp32s3",
@@ -70,5 +46,33 @@
     "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
     "archive": "c3-slave.zip",
     "archiveSha256": "633274acdb9cfeee70f8ffa95fa4df9ddf3141de1f4608d3ec2094ec7633eacc"
+  },
+  {
+    "nvsOffset": 36864,
+    "nvsSize": 20480,
+    "profile": "devkit-hub",
+    "version": "1.1.1",
+    "chip": "esp32",
+    "flashSize": "4MB",
+    "sha256": "aa6d912414f9c8cab37ffae6a2e9952bbdd1354aa99847132ca27de12e585642",
+    "binaryBytes": 1183536,
+    "applicationBytes": 1118000,
+    "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
+    "archive": "devkit-hub.zip",
+    "archiveSha256": "b927adf767a8da7faf5fd9a498fd4e5fc2d9a120f767711e9117424c6adad8fc"
+  },
+  {
+    "nvsOffset": 36864,
+    "nvsSize": 20480,
+    "profile": "devkit-central",
+    "version": "1.1.1",
+    "chip": "esp32",
+    "flashSize": "4MB",
+    "sha256": "105a44e3194ed40ed8ce681166426b4c8f93244588fb097d615b7457ae972282",
+    "binaryBytes": 1176816,
+    "applicationBytes": 1111280,
+    "hardwareValidation": "Obrigatória na instalação; compilação não substitui teste físico.",
+    "archive": "devkit-central.zip",
+    "archiveSha256": "f9b7eaff99edcd8dcfd6a0df72536e078b3408df50bab957bff82a52f3df5159"
   }
 ]
