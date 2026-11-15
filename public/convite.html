@@ -1,1 +1,28 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Nexus · Convite</title><link rel="stylesheet" href="/morador.css"></head><body><main><header><a class="brand" href="/">⌘ Nexus</a></header><h1>Convite de acesso</h1><p>Seu acesso é temporário e limitado aos locais liberados pelo anfitrião. Não compartilhe este link.</p><button class="primary" id="enter">Usar convite</button><p id="notice" role="status"></p></main><script src="/convite.js" defer></script></body></html>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+ <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+ <meta name="referrer" content="no-referrer"><title>Nexus · Convite</title>
+ <link rel="stylesheet" href="/morador.css">
+</head>
+<body><main>
+ <header><a class="brand" href="/">⌘ Nexus</a></header>
+ <span class="eyebrow">ACESSO TEMPORÁRIO</span>
+ <h1>Confirme seu convite</h1>
+ <p>Informe o CPF cadastrado pelo seu anfitrião. Seu acesso vale somente para os portões e o período liberados. Não compartilhe o link nem seu CPF.</p>
+ <section>
+  <form id="invite-access">
+   <label>Seu CPF<input id="cpf" name="cpf" required inputmode="numeric" autocomplete="off" maxlength="14" placeholder="000.000.000-00"></label>
+   <div id="vehicle" hidden>
+    <h2>Como você vai chegar?</h2>
+    <p>Seu convite inclui entrada de veículo. Cadastre o veículo que usará nesta visita.</p>
+    <label>Modelo do veículo<input name="model" disabled required minlength="2" maxlength="60" placeholder="Ex.: Fiat Argo"></label>
+    <label>Placa<input name="plate" disabled required minlength="7" maxlength="8" autocapitalize="characters" autocomplete="off" placeholder="ABC1D23 ou ABC-1234"></label>
+    <label>Cor<input name="color" disabled required minlength="2" maxlength="30" placeholder="Ex.: Prata"></label>
+   </div>
+   <button class="primary" id="enter" type="submit">Continuar</button>
+  </form>
+ </section>
+ <p id="notice" role="status" aria-live="polite"></p>
+ <footer>Seus dados são usados para conferir este convite e identificar a visita.<br>A liberação depende das permissões do anfitrião.</footer>
+</main><script src="/convite.js" defer></script></body></html>

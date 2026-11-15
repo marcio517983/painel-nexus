@@ -1,19 +1,17 @@
 import {handle,validateConfig} from './core.mjs';
-import {identity,login,session,query,randomToken,digest,now,validUser} from './auth.mjs';
+import {identity,login,query,randomToken,digest,now,passwordHash} from './auth.mjs';
+import {acceptInvite,normalizeCpf} from './invites.mjs';
 const json=(v,status=200,headers={})=>new Response(JSON.stringify(v),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
 const denied=()=>json({message:'Acesso não autorizado.'},403);
 const safeUser=u=>({name:u.name||'Administrador',email:u.email,role:u.role,clientId:u.clientId||''});
 function forwarded(r,env,u,path,body){const url=new URL(path,r.url);const headers=new Headers({'Content-Type':r.headers.get('Content-Type')||'application/json',Origin:new URL(r.url).origin,'oai-authenticated-user-id':u.id||'master','oai-authenticated-user-email':u.role==='master'?u.email:'resident:'+u.id,'X-Nexus-Portal-Key':env.RESIDENT_PORTAL_SECRET,'X-Nexus-Resident-Email':u.email||''});return new Request(url,{method:r.method,headers,body:['GET','HEAD'].includes(r.method)?undefined:body});}
-async function save(env,c){validateConfig(c);await query(env,'UPDATE clients SET data=?,revision=revision+1 WHERE id=?',JSON.stringify(c),c.id).run();}
+async function save(env,c,expected){validateConfig(c);const changed=await query(env,'UPDATE clients SET data=?,revision=revision+1 WHERE id=? AND data=? RETURNING id',JSON.stringify(c),c.id,expected).first();if(!changed)throw Object.assign(Error('O cadastro foi atualizado. Tente novamente.'),{status:409});}
 async function audit(env,c,u,action,result){await query(env,'INSERT INTO events VALUES(?,?,?,?,?,?,?)',crypto.randomUUID(),c.id,now(),'resident:'+u.id,action,'Convite',result).run();}
 export async function application(r,environment){try{
  const env={...environment,RESIDENT_PORTAL_SECRET:'server-internal-only'},url=new URL(r.url),p=url.pathname;
  if(r.method!=='GET'&&r.method!=='HEAD'&&!p.startsWith('/api/v1/gateway/')&&r.headers.get('Origin')!==env.NEXUS_ORIGIN)return denied();
  if(p==='/api/auth/login'&&r.method==='POST'){const out=await login(r,env);return out.user?json({user:safeUser(out.user)},200,{'Set-Cookie':out.cookie}):json({message:out.message},out.status);}
- if(p==='/api/auth/invite'&&r.method==='POST'){
-  const b=await r.json(),token=String(b.token||'');if(!/^[a-f0-9]{64}$/.test(token))return denied();
-  const row=await query(env,'SELECT * FROM clients WHERE id=?',String(b.central||'')).first();if(!row)return denied();const c=JSON.parse(row.data),u=c.users.find(u=>u.inviteHash===digest(token));if(!validUser(u,c)||u.role!=='visitante')return denied();return json({user:safeUser({...u,clientId:c.id})},200,{'Set-Cookie':await session(env,{...u,clientId:c.id})});
- }
+ if((p==='/api/auth/invite'||p==='/api/auth/invite/check')&&r.method==='POST')return await acceptInvite(r,env,{checkOnly:p.endsWith('/check')});
  if(p.startsWith('/api/v1/gateway/')){const headers=new Headers(r.headers);headers.delete('oai-authenticated-user-id');headers.delete('oai-authenticated-user-email');return handle(new Request(r,{headers}),env);}
  const u=await identity(r,env);if(!u)return json({message:'Entre para continuar.'},401);
  if(p==='/api/auth/me'&&r.method==='GET')return json({user:safeUser(u)});
@@ -23,16 +21,26 @@ export async function application(r,environment){try{
   const sub=p.slice('/api/resident/'.length);
   if(sub==='invites'){
    if(!['morador','sindico'].includes(u.role)||!u.client.allowInvites)return denied();
-   if(r.method==='GET')return json({invites:u.client.users.filter(v=>v.role==='visitante'&&(u.role==='sindico'||v.parentId===u.id)).map(v=>({id:v.id,name:v.name,expires:v.expires,active:v.active,doors:v.doors}))});
+   if(r.method==='GET'){
+    const rows=(await query(env,'SELECT user_id,vehicle FROM invite_details WHERE client_id=?',u.clientId).all()).results;
+    return json({invites:u.client.users.filter(v=>v.role==='visitante'&&(u.role==='sindico'||v.parentId===u.id)).map(v=>({id:v.id,name:v.name,expires:v.expires,active:v.active,doors:v.doors,verified:v.inviteVerified===true,legacy:typeof v.inviteVerified!=='boolean',vehicle:JSON.parse(rows.find(x=>x.user_id===v.id)?.vehicle||'null')}))});
+   }
    if(r.method==='POST'){
-    const b=await r.json(),name=String(b.name||'').trim(),expires=Number(b.expires),doors=b.doors;
+    const b=await r.json(),name=String(b.name||'').trim(),expires=Number(b.expires),doors=b.doors,cpf=normalizeCpf(b.cpf);
+    if(!cpf)return json({message:'Informe um CPF válido para o visitante.'},400);
     if(!name||name.length>70||!Number.isInteger(expires)||expires<=now()||expires>now()+7*86400||!Array.isArray(doors)||!doors.length)return json({message:'Informe nome, acessos e validade de até 7 dias.'},400);
     if(doors.some(id=>!u.client.nodes.some(n=>n.id===id&&n.type==='gate')||(u.role!=='sindico'&&!u.doors.includes(id))))return denied();
-    const c=structuredClone(u.client);c.users=c.users.filter(v=>v.role!=='visitante'||v.expires>now());const token=randomToken(),id=crypto.randomUUID();c.users.push({id,name,email:id+'@visitor.invalid',role:'visitante',active:true,doors:[...new Set(doors)],expires,parentId:u.id,inviteHash:digest(token),salt:randomToken().slice(0,32),hash:randomToken()});await save(env,c);await audit(env,c,u,'Convite criado',name);return json({id,url:env.NEXUS_ORIGIN+'/convite.html?central='+encodeURIComponent(c.id)+'#'+token},201);
+    const c=structuredClone(u.client);c.users=c.users.filter(v=>v.role!=='visitante'||v.expires>now());const token=randomToken(),id=crypto.randomUUID();
+    c.users.push({id,name,email:id+'@visitor.invalid',role:'visitante',active:true,doors:[...new Set(doors)],expires,parentId:u.id,inviteHash:digest(token),inviteVerified:false,salt:randomToken().slice(0,32),hash:randomToken()});
+    validateConfig(c);
+    await query(env,'DELETE FROM invite_details WHERE expires<=?',now()).run();
+    await query(env,'INSERT INTO invite_details(client_id,user_id,cpf_hash,expires) VALUES(?,?,?,?)',c.id,id,await passwordHash(cpf,token),expires).run();
+    try{await save(env,c,u.clientData);}catch(error){await query(env,'DELETE FROM invite_details WHERE client_id=? AND user_id=?',c.id,id).run();throw error;}
+    await audit(env,c,u,'Convite criado',name);return json({id,url:env.NEXUS_ORIGIN+'/convite.html?central='+encodeURIComponent(c.id)+'#'+token},201);
    }
   }
   if(sub.startsWith('invites/')&&r.method==='DELETE'){
-   if(!['morador','sindico'].includes(u.role))return denied();const c=structuredClone(u.client),v=c.users.find(v=>v.id===sub.slice(8)&&v.role==='visitante');if(!v||(u.role!=='sindico'&&v.parentId!==u.id))return denied();v.active=false;await save(env,c);await audit(env,c,u,'Convite revogado',v.name);return json({ok:true});
+   if(!['morador','sindico'].includes(u.role))return denied();const c=structuredClone(u.client),v=c.users.find(v=>v.id===sub.slice(8)&&v.role==='visitante');if(!v||(u.role!=='sindico'&&v.parentId!==u.id))return denied();v.active=false;await save(env,c,u.clientData);await audit(env,c,u,'Convite revogado',v.name);return json({ok:true});
   }
   if(!/^(dashboard|logs|commands(?:\/[a-f0-9-]{36})?)$/i.test(sub))return json({message:'Rota inexistente.'},404);
   return handle(forwarded(r,env,u,'/api/v1/resident/'+sub+url.search,await r.text()),env);

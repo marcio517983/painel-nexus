@@ -5,7 +5,7 @@ const epoch=()=>Math.floor(Date.now()/1000);
 const one=(db,sql,...b)=>db.prepare(sql).bind(...b).first();
 const all=async(db,sql,...b)=>(await db.prepare(sql).bind(...b).all()).results;
 const run=(db,sql,...b)=>db.prepare(sql).bind(...b).run();
-export function residentValid(u,now=epoch()){return !!u&&u.active===true&&['morador','sindico','visitante'].includes(u.role)&&(u.role!=='visitante'||Number(u.expires)>now);}
+export function residentValid(u,now=epoch()){return !!u&&u.active===true&&['morador','sindico','visitante'].includes(u.role)&&(u.role!=='visitante'||(Number(u.expires)>now&&(!u.inviteHash||u.inviteVerified===true)));}
 export function residentAllows(u,deviceId,c){return !disabledClient(c)&&residentValid(u)&&(!u.parentId||(c.allowInvites&&c.users.some(p=>p.id===u.parentId&&residentValid(p)&&['morador','sindico'].includes(p.role)&&(p.role==='sindico'||u.doors.every(d=>p.doors.includes(d))))))&&c.nodes.some(n=>n.id===deviceId&&n.type==='gate'&&n.enabled!==false)&&(u.role==='sindico'||u.doors.includes(deviceId));}
 async function sameSecret(a,b){if(!a||!b)return false;const digest=async s=>new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)));const x=await digest(a),y=await digest(b);let diff=0;for(let i=0;i<x.length;i++)diff|=x[i]^y[i];return diff===0;}
 export async function residentHandle(r,env){try{
