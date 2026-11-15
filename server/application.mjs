@@ -20,7 +20,7 @@ export async function application(r,environment){try{
   if(u.role==='master')return denied();if(url.searchParams.get('central')!==u.clientId)return denied();
   const sub=p.slice('/api/resident/'.length);
   if(sub==='invites'){
-   if(!['morador','sindico'].includes(u.role)||!u.client.allowInvites)return denied();
+   if(!['morador','sindico'].includes(u.role)||u.client.allowInvites!==true)return denied();
    if(r.method==='GET'){
     const rows=(await query(env,'SELECT user_id,vehicle FROM invite_details WHERE client_id=?',u.clientId).all()).results;
     return json({invites:u.client.users.filter(v=>v.role==='visitante'&&(u.role==='sindico'||v.parentId===u.id)).map(v=>({id:v.id,name:v.name,expires:v.expires,active:v.active,doors:v.doors,verified:v.inviteVerified===true,legacy:typeof v.inviteVerified!=='boolean',vehicle:JSON.parse(rows.find(x=>x.user_id===v.id)?.vehicle||'null')}))});

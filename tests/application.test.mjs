@@ -6,7 +6,7 @@ async function poll(env,c,b={}){return call(env,'/gateway/poll','POST',{applied:
 async function setup(){const e=env();e.sqlite.exec(readFileSync(new URL('../migrations/002.sql',import.meta.url),'utf8'));Object.assign(e,{NEXUS_ORIGIN:'https://nexus.test',NEXUS_ADMIN_EMAIL:'admin@example.test',NEXUS_ADMIN_SALT:'a'.repeat(32),NEXUS_ADMIN_HASH:await passwordHash('master-password-test','a'.repeat(32))});return e;}
 async function app(e,path,method='GET',body,cookie='',extra={}){const r=await application(new Request('https://nexus.test'+path,{method,headers:{Origin:'https://nexus.test','Content-Type':'application/json',cookie,...extra},body:body===undefined?undefined:JSON.stringify(body)}),e);return{status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
 async function master(e){const r=await app(e,'/api/auth/login','POST',{email:'admin@example.test',password:'master-password-test'});assert.equal(r.status,200);return r.cookie;}
-async function populated(e,cookie){const c=(await app(e,'/api/v1/clients','POST',{name:'Araras',address:'Teste'},cookie)).data.client;for(const [name,type,board,accessKind,mac]of [['Portão de veículos','gate','esp32-devkit','veiculos','AA:BB:CC:DD:EE:01'],['Porta do hall','gate','esp32-devkit','hall','AA:BB:CC:DD:EE:02'],['Caixa de água','water','esp32-devkit','agua','AA:BB:CC:DD:EE:03']])assert.equal((await app(e,'/api/v1/clients/'+c.id+'/nodes','POST',{name,type,board,accessKind,mac},cookie)).status,200);const cfg=(await app(e,'/api/v1/clients','GET',undefined,cookie)).data.clients[0];for(const[email,role]of[['m@example.test','morador'],['s@example.test','sindico']])assert.equal((await app(e,'/api/v1/clients/'+c.id+'/users','POST',{name:role,email,role,salt:'b'.repeat(32),hash:await passwordHash('resident-test-password','b'.repeat(32)),doors:[cfg.nodes[0].id]},cookie)).status,200);return cfg;}
+async function populated(e,cookie){const c=(await app(e,'/api/v1/clients','POST',{name:'Araras',address:'Teste',allowInvites:true},cookie)).data.client;for(const [name,type,board,accessKind,mac]of [['Portão de veículos','gate','esp32-devkit','veiculos','AA:BB:CC:DD:EE:01'],['Porta do hall','gate','esp32-devkit','hall','AA:BB:CC:DD:EE:02'],['Caixa de água','water','esp32-devkit','agua','AA:BB:CC:DD:EE:03']])assert.equal((await app(e,'/api/v1/clients/'+c.id+'/nodes','POST',{name,type,board,accessKind,mac},cookie)).status,200);const cfg=(await app(e,'/api/v1/clients','GET',undefined,cookie)).data.clients[0];for(const[email,role]of[['m@example.test','morador'],['s@example.test','sindico']])assert.equal((await app(e,'/api/v1/clients/'+c.id+'/users','POST',{name:role,email,role,salt:'b'.repeat(32),hash:await passwordHash('resident-test-password','b'.repeat(32)),doors:[cfg.nodes[0].id]},cookie)).status,200);return cfg;}
 async function member(e,c,email){const r=await app(e,'/api/auth/login','POST',{email,password:'resident-test-password',central:c.id});assert.equal(r.status,200);return r.cookie;}
 test('login próprio, bloqueio de headers forjados, origem, limite de tentativas e logout',async()=>{const e=await setup();assert.equal((await app(e,'/api/v1/clients','GET',undefined,'',{'oai-authenticated-user-id':'owner','oai-authenticated-user-email':'admin@example.test'})).status,401);assert.equal((await app(e,'/api/auth/login','POST',{},'',{Origin:'https://evil.test'})).status,403);const cookie=await master(e);assert.equal((await app(e,'/api/v1/clients','GET',undefined,cookie)).status,200);assert.equal((await app(e,'/api/auth/logout','POST',{},cookie)).status,200);assert.equal((await app(e,'/api/auth/me','GET',undefined,cookie)).status,401);for(let i=0;i<10;i++)assert.equal((await app(e,'/api/auth/login','POST',{email:'wrong@test',password:'wrong'})).status,401);assert.equal((await app(e,'/api/auth/login','POST',{email:'wrong@test',password:'wrong'})).status,429);});
 test('síndico isolado por condomínio e sem promoção de perfil; morador sem histórico nem cadastros',async()=>{const e=await setup(),owner=await master(e),c=await populated(e,owner),s=await member(e,c,'s@example.test'),m=await member(e,c,'m@example.test');const other=(await app(e,'/api/v1/clients','POST',{name:'Outro',address:'Outro'},owner)).data.client;assert.deepEqual((await app(e,'/api/v1/clients','GET',undefined,s)).data.clients.map(c=>c.id),[c.id]);assert.equal((await app(e,'/api/v1/clients/'+other.id+'/events','GET',undefined,s)).status,403);assert.equal((await app(e,'/api/v1/clients/'+c.id+'/users','POST',{role:'sindico'},s)).status,403);assert.equal((await app(e,'/api/resident/logs?central='+c.id,'GET',undefined,m)).status,403);assert.equal((await app(e,'/api/v1/clients','GET',undefined,m)).status,403);assert.equal((await app(e,'/api/resident/dashboard?central='+c.id,'GET',undefined,m)).data.devices.length,1);assert.equal((await app(e,'/api/resident/dashboard?central='+other.id,'GET',undefined,m)).status,403);const d=(await app(e,'/api/resident/dashboard?central='+c.id,'GET',undefined,s)).data;assert.equal(d.devices.length,2);assert.equal(d.water.length,1);});
@@ -138,4 +138,41 @@ test('dados do veículo ficam restritos ao anfitrião e síndico; origem e corpo
  const another=await member(e,c,'other@example.test');
  assert.deepEqual((await app(e,route,'GET',undefined,another)).data.invites,[]);
  for(const cookie of [m,s])assert.equal((await app(e,route,'GET',undefined,cookie)).data.invites[0].vehicle.plate,'ABC1D23');
+});
+
+test('plano Básico é padrão para novos clientes e só Master libera Plus',async()=>{
+ const e=await setup(),owner=await master(e),c=await populated(e,owner),m=await member(e,c,'m@example.test'),s=await member(e,c,'s@example.test');
+ const basic=await app(e,'/api/v1/clients','POST',{name:'Básico',address:'Fixture'},owner);assert.equal(basic.status,201);assert.equal(basic.data.client.allowInvites,false);
+ for(const cookie of [m,s])assert.equal((await app(e,'/api/v1/clients/'+c.id,'PATCH',{allowInvites:true},cookie)).status,403);
+ for(const value of ['true','false',1,null])assert.equal((await app(e,'/api/v1/clients/'+c.id,'PATCH',{allowInvites:value},owner)).status,400);
+ assert.equal((await app(e,'/api/v1/clients','POST',{name:'Inválido',address:'Fixture',allowInvites:'false'},owner)).status,400);
+ assert.equal((await app(e,'/api/v1/clients/'+basic.data.client.id,'PATCH',{allowInvites:true},owner)).status,200);
+ assert.equal(JSON.parse(e.sqlite.prepare('SELECT data FROM clients WHERE id=?').get(basic.data.client.id).data).allowInvites,true);
+ // Existing Plus clients are untouched by the default for new registrations.
+ assert.equal(JSON.parse(e.sqlite.prepare('SELECT data FROM clients WHERE id=?').get(c.id).data).allowInvites,true);
+});
+test('Básico oculta convites, bloqueia visitante e fila, preserva morador e Plus restaura convite válido',async()=>{
+ const {e,owner,c,m,route,credentials,payload}=await invitationFixture();
+ const accepted=await app(e,'/api/auth/invite','POST',{...credentials,vehicle:carFixture});assert.equal(accepted.status,200);
+ const gateway={client:c,gatewayToken:'plan-test-gateway'};e.sqlite.prepare('UPDATE clients SET token_hash=? WHERE id=?').run((await import('../server/auth.mjs')).digest(gateway.gatewayToken),c.id);
+ const nodes=c.nodes.map(n=>({id:n.id,online:true,state:0}));await poll(e,gateway,{nodes});
+ const command=await app(e,'/api/resident/commands?central='+c.id,'POST',{deviceId:c.nodes[0].id,requestId:crypto.randomUUID()},accepted.cookie);assert.equal(command.status,202);
+ assert.equal((await app(e,'/api/v1/clients/'+c.id,'PATCH',{allowInvites:false},owner)).status,200);
+ const resident=await app(e,'/api/resident/dashboard?central='+c.id,'GET',undefined,m);assert.equal(resident.status,200);assert.equal(resident.data.allowInvites,false);assert.equal(resident.data.devices.length,1);
+ assert.equal((await app(e,route,'GET',undefined,m)).status,403);assert.equal((await app(e,route,'POST',payload,m)).status,403);
+ assert.equal((await app(e,'/api/auth/me','GET',undefined,accepted.cookie)).status,401);
+ for(const path of ['/api/auth/invite','/api/auth/invite/check'])assert.equal((await app(e,path,'POST',credentials)).status,403);
+ assert.equal((await poll(e,gateway,{nodes})).data.commands.length,0);
+ assert.equal(e.sqlite.prepare('SELECT status FROM commands WHERE id=?').get(command.data.commandId).status,'failed');
+ assert.equal((await app(e,'/api/v1/clients/'+c.id,'PATCH',{allowInvites:true},owner)).status,200);
+ assert.equal((await app(e,'/api/auth/invite','POST',credentials)).status,200);
+});
+test('sincronização da central não pode alterar plano definido pelo Master',async()=>{
+ const {e,owner,c}=await invitationFixture();
+ await app(e,'/api/v1/clients/'+c.id,'PATCH',{allowInvites:false},owner);
+ const row=e.sqlite.prepare('SELECT * FROM clients WHERE id=?').get(c.id),cfg=JSON.parse(row.data);cfg.allowInvites=true;cfg.name='Alteração local autorizada';
+ const gateway={client:c,gatewayToken:'local-plan-test'};e.sqlite.prepare('UPDATE clients SET token_hash=? WHERE id=?').run((await import('../server/auth.mjs')).digest(gateway.gatewayToken),c.id);
+ const result=await poll(e,gateway,{baseRevision:row.revision,localConfig:cfg});assert.equal(result.status,200);assert.equal(result.data.localApplied,true);
+ const stored=JSON.parse(e.sqlite.prepare('SELECT data FROM clients WHERE id=?').get(c.id).data);
+ assert.equal(stored.allowInvites,false);assert.equal(stored.name,'Alteração local autorizada');
 });
