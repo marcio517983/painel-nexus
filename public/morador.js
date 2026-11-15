@@ -9,7 +9,7 @@ function accessIcon(name){
  const paths=/hall|porta\b/.test(key)?'<path d="M6 21V3h12v18M3 21h18M14 12h.01"/>':/pedestre/.test(key)?'<circle cx="13" cy="4" r="2"/><path d="m7 21 3-7 3 3v4M10 14l2-7 3 4h4M7 11l3-3"/>':'<path d="m5 11 2-5h10l2 5M4 11h16v7H4zM7 18v3m10-3v3M7 14h.01M17 14h.01"/>';
  const icon=document.createElement('span');icon.className='access-icon';icon.setAttribute('aria-hidden','true');icon.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+paths+'</svg>';return icon;
 }
-const $=s=>document.querySelector(s),central=new URLSearchParams(location.search).get('central')||'';let snapshot=null,busy=false,selected=null;
+const $=s=>document.querySelector(s),central=new URLSearchParams(location.search).get('central')||(()=>{try{return localStorage.getItem('nexus:lastCentral')||''}catch{return ''}})();let snapshot=null,busy=false,selected=null;
 const position=s=>({0:'Fechado',1:'Aberto / não fechado',2:'Entre os fins de curso',3:'Falha: dois sensores ativos'})[s]||'Posição não monitorada';
 function notice(s,error=false){$('#notice').textContent=s;$('#notice').className=error?'error':'';}
 async function api(path,body){const r=await fetch('/api/resident/'+path+'?central='+encodeURIComponent(central),{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const d=await r.json();if(!r.ok){const e=Error(d.message||'Não foi possível consultar a central.');e.status=r.status;throw e}return d;}
