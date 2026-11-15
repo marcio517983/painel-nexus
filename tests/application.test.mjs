@@ -44,3 +44,18 @@ test('somente Master renova chave preservando cadastros e invalida chave anterio
  assert.equal((await app(e,'/api/v1/gateway/poll','POST',{nodes:[]},'',{'X-Gateway-Id':cid,Authorization:'Bearer '+result.data.gatewayToken})).status,200);
  assert.equal(JSON.stringify((await app(e,'/api/v1/clients','GET',undefined,owner)).data).includes(result.data.gatewayToken),false);
 });
+
+test('Master e síndico recebem nomes nos eventos antigos, preservando IDs e isolamento',async()=>{
+ const e=await setup(),owner=await master(e),c=await populated(e,owner);
+ const stored=JSON.parse(e.sqlite.prepare('SELECT data FROM clients WHERE id=?').get(c.id).data),u=stored.users.find(u=>u.role==='morador');
+ const eid=crypto.randomUUID(),at=Math.floor(Date.now()/1000);
+ e.sqlite.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?)').run(eid,c.id,at,'resident:'+u.id,'Execucao',c.nodes[0].id,'Pulso concluído');
+ const masterEvents=await app(e,'/api/v1/clients/'+c.id+'/events','GET',undefined,owner);
+ assert.equal(masterEvents.status,200);const row=masterEvents.data.events.find(x=>x.id===eid);
+ assert.equal(row.actorName,u.name);assert.equal(row.deviceName,c.nodes[0].name);assert.equal(row.at,at);assert.equal(row.actor,'resident:'+u.id);
+ const s=await member(e,c,'s@example.test');
+ const logs=await app(e,'/api/resident/logs?central='+c.id,'GET',undefined,s);
+ assert.equal(logs.status,200);assert.ok(logs.data.events.some(x=>x.actorName===u.name&&x.deviceName===c.nodes[0].name));
+ const raw=e.sqlite.prepare('SELECT actor,device FROM events WHERE id=?').get(eid);
+ assert.equal(raw.actor,'resident:'+u.id);assert.equal(raw.device,c.nodes[0].id);
+});

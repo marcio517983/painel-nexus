@@ -1,3 +1,4 @@
+import {labelEvent} from './event-labels.mjs';
 import {PROFILES,disabledClient,validateHardware,hardwareProfile,nodeFields} from './hardware.mjs';
 import {recordPumps} from './pumps.mjs';
 import {residentHandle,residentAllows} from './resident.mjs';
@@ -55,7 +56,7 @@ if(sub==='users'&&r.method==='POST'){const b=await body(r),cfg=JSON.parse(row.da
 if(sub.startsWith('users/')&&r.method==='PATCH'){const b=await body(r),cfg=JSON.parse(row.data),u=cfg.users.find(u=>u.id===sub.slice(6));if(!u)fail('Usuário inexistente.',404);for(const k of ['name','email'])if(k in b)u[k]=str(b[k],k==='name'?70:120);if('email' in b){u.email=u.email.toLowerCase();if(cfg.users.some(v=>v.id!==u.id&&v.email.toLowerCase()===u.email))fail('E-mail já cadastrado.');}if(('salt' in b)!==('hash' in b))fail('Credencial incompleta.');if('salt' in b){u.salt=b.salt;u.hash=b.hash;}if(typeof b.active==='boolean')u.active=b.active;if(Array.isArray(b.doors))u.doors=b.doors;validateConfig(cfg);await run(db,'UPDATE clients SET data=?,revision=revision+1 WHERE id=?',JSON.stringify(cfg),cid);await event(db,cid,actor,'Permissão',u.name,u.active?'Reativação pendente':'Revogação pendente');return json({ok:true});}
 if(sub==='commands'&&r.method==='POST'){const b=await body(r);authorizeCommand(c,b.deviceId);const cmd=id();await run(db,'INSERT INTO commands VALUES(?,?,?,?,?,?,?,?)',cmd,cid,b.deviceId,actor,epoch(),epoch()+8,'queued','');return json({commandId:cmd,status:'queued'},202);}
 if(sub.startsWith('commands/')&&r.method==='GET'){const cmd=await one(db,'SELECT * FROM commands WHERE id=? AND client_id=?',sub.slice(9),cid);if(!cmd)fail('Comando inexistente.',404);if(['queued','sent'].includes(cmd.status)&&cmd.expires+10<epoch()){cmd.status=cmd.status==='sent'?'unknown':'expired';await run(db,'UPDATE commands SET status=? WHERE id=?',cmd.status,cmd.id);}return json(cmd);}
-if(sub==='events'&&r.method==='GET'){await run(db,'DELETE FROM events WHERE client_id=? AND at<?',cid,epoch()-c.retention*86400);return json({events:await all(db,'SELECT * FROM events WHERE client_id=? ORDER BY at DESC LIMIT 200',cid)});}
+if(sub==='events'&&r.method==='GET'){await run(db,'DELETE FROM events WHERE client_id=? AND at<?',cid,epoch()-c.retention*86400);return json({events:(await all(db,'SELECT * FROM events WHERE client_id=? ORDER BY at DESC LIMIT 200',cid)).map(e=>labelEvent(e,c,env.NEXUS_ADMIN_EMAIL))});}
 if(sub==='firmware'&&r.method==='POST')fail('Atualização por USB: selecione o pacote específico da placa e do perfil.',409);
 if(sub==='packages'&&r.method==='GET')return json({packages:await all(db,'SELECT id,version,sha256,size,created,status FROM packages WHERE client_id=? ORDER BY created DESC LIMIT 20',cid)});
 }

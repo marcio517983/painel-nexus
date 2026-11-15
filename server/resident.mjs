@@ -1,3 +1,4 @@
+import {labelEvent} from './event-labels.mjs';
 import {disabledClient} from './hardware.mjs';
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const epoch=()=>Math.floor(Date.now()/1000);
@@ -30,6 +31,6 @@ export async function residentHandle(r,env){try{
   if(['queued','sent'].includes(cmd.status)&&cmd.expires+10<epoch()){cmd.status=cmd.status==='sent'?'unknown':'expired';await run(env.DB,'UPDATE commands SET status=? WHERE id=?',cmd.status,cmd.id);}
   return json({commandId:cmd.id,status:cmd.status,result:cmd.result,created:cmd.created});
  }
- if(path==='/logs'&&r.method==='GET'){if(u.role!=='sindico')return json({message:'Histórico disponível somente para a administração.'},403);return json({events:await all(env.DB,'SELECT at,actor,action,device,result FROM events WHERE client_id=? AND at>=? ORDER BY at DESC LIMIT 30',cid,epoch()-c.retention*86400)});}
+ if(path==='/logs'&&r.method==='GET'){if(u.role!=='sindico')return json({message:'Histórico disponível somente para a administração.'},403);return json({events:(await all(env.DB,'SELECT at,actor,action,device,result FROM events WHERE client_id=? AND at>=? ORDER BY at DESC LIMIT 30',cid,epoch()-c.retention*86400)).map(e=>labelEvent(e,c,env.NEXUS_ADMIN_EMAIL))});}
  return json({message:'Rota indisponível.'},404);
  }catch{return json({message:'Falha de comunicação. Não repita o acionamento sem conferir o estado.'},500);}}
