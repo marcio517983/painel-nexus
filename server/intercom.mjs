@@ -8,7 +8,7 @@ const originOk=(r,env)=>r.headers.get('origin')===env.NEXUS_ORIGIN;
 const safeId=s=>/^[a-zA-Z0-9_-]{1,64}$/.test(s||'');
 const units=async(env,cid)=> (await query(env,'SELECT id,label FROM intercom_units WHERE client_id=? AND enabled=1 ORDER BY label LIMIT 100',cid).all()).results;
 const row=async(env,id)=>query(env,'SELECT * FROM intercom_calls WHERE id=?',id).first();
-const active=async(env,id)=>{const c=await row(env,id);if(!c)return null;if(c.status==='ringing'&&c.expires<=now()){await query(env,"UPDATE intercom_calls SET status='missed',ended_at=? WHERE id=? AND status='ringing'",now(),id).run();return {...c,status:'missed'};}return c;};
+const active=async(env,id)=>{const c=await row(env,id);if(!c)return null;if(c.status==='answered'&&c.expires<=now()){await query(env,"UPDATE intercom_calls SET status='ended',ended_at=? WHERE id=? AND status='answered'",now(),id).run();return {...c,status:'ended'};}if(c.status==='ringing'&&c.expires<=now()){await query(env,"UPDATE intercom_calls SET status='missed',ended_at=? WHERE id=? AND status='ringing'",now(),id).run();return {...c,status:'missed'};}return c;};
 const publicState=c=>({id:c.id,status:c.status,createdAt:c.created_at,expires:c.expires,answeredAt:c.answered_at||null,endedAt:c.ended_at||null,hasAnswer:!!c.answer_sdp});
 const validRole=u=>u&&['morador','sindico'].includes(u.role);
 const permitted=async(env,u,unitId)=> !!(await query(env,'SELECT 1 FROM intercom_unit_members WHERE client_id=? AND unit_id=? AND user_id=?',u.clientId,unitId,u.id).first())||u.role==='sindico';
@@ -102,7 +102,7 @@ export async function intercom(r,env){
   }
   if(p[0]==='calls'&&p[1]&&p[2]==='answer'&&method==='POST'){
    const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id))return json({message:'Chamada não autorizada'},403);
-   const result=await query(env,"UPDATE intercom_calls SET status='answered',answered_at=?,answered_by=? WHERE id=? AND status='ringing' AND expires>? RETURNING id",now(),u.id,c.id,now()).first();
+   const result=await query(env,"UPDATE intercom_calls SET status='answered',answered_at=?,answered_by=?,expires=? WHERE id=? AND status='ringing' AND expires>? RETURNING id",now(),u.id,now()+300,c.id,now()).first();
    return result?json({ok:true,status:'answered'}):json({message:'Chamada encerrada ou já atendida'},409);
   }
   if(p[0]==='calls'&&p[1]&&p[2]==='decline'&&method==='POST'){
