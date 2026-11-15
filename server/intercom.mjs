@@ -55,7 +55,7 @@ export async function intercom(r,env){
    }
    if(p[2]==='calls'&&p[3]&&p[4]==='cancel'&&method==='POST'){
     const c=await active(env,p[3]);if(!c||c.client_id!==cid||!r.headers.get('authorization')?.startsWith('Bearer ')||digest(r.headers.get('authorization').slice(7))!==c.token_hash)return json({message:'Chamada não encontrada'},404);
-    await query(env,"UPDATE intercom_calls SET status='ended',ended_at=? WHERE id=? AND status='ringing'",now(),c.id).run();
+    await query(env,"UPDATE intercom_calls SET status='ended',ended_at=? WHERE id=? AND status IN ('ringing','answered')",now(),c.id).run();
     return json({ok:true});
    }
    return json({message:'Rota inexistente'},404);
