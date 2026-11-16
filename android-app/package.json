@@ -1,0 +1,21 @@
+{
+  "name": "nexusmaster-interfone-android-test",
+  "version": "0.1.0",
+  "private": true,
+  "description": "APK de teste NexusMaster - plataforma Android com Capacitor",
+  "scripts": {
+    "android:add": "npx cap add android",
+    "android:sync": "npx cap sync android",
+    "android:build": "cd android && ./gradlew :app:assembleDebug --no-daemon"
+  },
+  "dependencies": {
+    "@capacitor/core": "7.6.10",
+    "@capacitor/android": "7.6.10"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "7.6.10"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
