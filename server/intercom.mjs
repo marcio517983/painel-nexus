@@ -1,6 +1,7 @@
 import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {identity, query, now} from './auth.mjs';
 import {endpointHash,validSubscription,pushConfigured,sendWebPush} from './intercom-push.mjs';
+import {fcmTokenHash,validFcmToken,fcmConfigured,sendFcmCall} from './intercom-fcm.mjs';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const digest=s=>createHash('sha256').update(String(s)).digest('hex');
@@ -43,6 +44,21 @@ async function notifyResidents(env,clientId,unitId,reason,callId,expires){
   }));
  }catch{/* A falha em Push nunca cancela a chamada do visitante. */}
 }
+async function notifyFcmResidents(env,clientId,unitId,reason,callId,expires,label){
+ if(!fcmConfigured(env))return;
+ try{
+  const rows=(await query(env,`SELECT f.token,f.token_hash FROM intercom_fcm_tokens f
+   JOIN intercom_unit_members m ON m.client_id=f.client_id AND m.user_id=f.user_id
+   WHERE m.client_id=? AND m.unit_id=? LIMIT 24`,clientId,unitId).all()).results;
+  if(!rows.length)return;
+  await Promise.allSettled(rows.map(async recipient=>{
+   const result=await sendFcmCall(env,recipient.token,{id:callId,expires,unitId,label,reason});
+   if([404,410].includes(result.status)){
+    await query(env,'DELETE FROM intercom_fcm_tokens WHERE token_hash=?',recipient.token_hash).run().catch(()=>{});
+   }
+  }));
+ }catch{/* Never prevent visitor call if Android Push is unavailable. */}
+}
 async function payloadSignal(r){const text=await r.text();if(text.length>70000)throw Error('Sinalização muito grande');const b=JSON.parse(text);if(!['offer','answer'].includes(b?.type)||typeof b.sdp!=='string'||b.sdp.length>65000)throw Error('Sinalização inválida');return {type:b.type,sdp:b.sdp};}
 async function payload(r,maxSize=1500){const txt=await r.text();if(txt.length>maxSize)throw Error('Corpo muito grande');return JSON.parse(txt);}
 export async function intercom(r,env){
@@ -64,7 +80,7 @@ export async function intercom(r,env){
     if(!budget.allowed)return json({message:'Limite temporário de chamadas atingido.',retryAfterSeconds:budget.retryAfterSeconds},429);
     const b=await payload(r),unitId=String(b.unitId||''),reason=String(b.reason||'');
     if(!/^[a-zA-Z0-9_-]{1,64}$/.test(unitId)||!['entrega','visita','servico','outro'].includes(reason))return json({message:'Escolha uma unidade e o motivo'},400);
-    const u=await query(env,'SELECT id FROM intercom_units WHERE client_id=? AND id=? AND enabled=1',cid,unitId).first();
+    const u=await query(env,'SELECT id,label FROM intercom_units WHERE client_id=? AND id=? AND enabled=1',cid,unitId).first();
     if(!u)return json({message:'Unidade indisponível'},404);
     // Keep a short anti-spam limit even in the higher-volume pilot, per unit and source IP.
     if(policy.pilot){
@@ -75,7 +91,10 @@ export async function intercom(r,env){
     if(pending)return json({message:'Esta unidade está recebendo outra chamada.'},409);
     const id=randomUUID(),secret=token(),created=now();
     await query(env,'INSERT INTO intercom_calls(id,client_id,unit_id,reason,token_hash,status,created_at,expires) VALUES(?,?,?,?,?,?,?,?)',id,cid,unitId,reason,digest(secret),'ringing',created,created+30).run();
-    await notifyResidents(env,cid,unitId,reason,id,created+30);
+    await Promise.allSettled([
+     notifyResidents(env,cid,unitId,reason,id,created+30),
+     notifyFcmResidents(env,cid,unitId,reason,id,created+30,u.label)
+    ]);
     return json({callId:id,callToken:secret,status:'ringing',expires:created+30},201);
    }
    if(p[2]==='calls'&&p[3]&&['offer','answer'].includes(p[4])){
@@ -100,6 +119,32 @@ export async function intercom(r,env){
    return json({message:'Rota inexistente'},404);
   }
   const u=await identity(r,env);if(!validRole(u))return json({message:'Entre como morador ou síndico'},401);
+  if(p[0]==='fcm'){
+   if(p[1]==='status'&&method==='GET'){
+    const devices=(await query(env,'SELECT COUNT(*) AS n FROM intercom_fcm_tokens WHERE client_id=? AND user_id=?',u.clientId,u.id).first())?.n||0;
+    return json({devices:Number(devices),deliveryConfigured:fcmConfigured(env)});
+   }
+   if(p[1]==='register'&&method==='POST'){
+    const b=await payload(r,5000);
+    if(!validFcmToken(b.token))return json({message:'Token Firebase inválido'},400);
+    const hash=fcmTokenHash(b.token);
+    // A single Android installation can be assigned to only one account.
+    await query(env,'DELETE FROM intercom_fcm_tokens WHERE token_hash=?',hash).run();
+    await query(env,'INSERT INTO intercom_fcm_tokens(token_hash,token,client_id,user_id,created_at,updated_at) VALUES(?,?,?,?,?,?)',
+     hash,b.token,u.clientId,u.id,now(),now()).run();
+    // Keep registration bounded and remove very stale devices.
+    await query(env,'DELETE FROM intercom_fcm_tokens WHERE updated_at<?',now()-90*86400).run();
+    return json({ok:true,deliveryConfigured:fcmConfigured(env)},201);
+   }
+   if(p[1]==='unregister'&&method==='POST'){
+    const b=await payload(r,5000);
+    if(!validFcmToken(b.token))return json({message:'Token Firebase inválido'},400);
+    await query(env,'DELETE FROM intercom_fcm_tokens WHERE token_hash=? AND client_id=? AND user_id=?',
+     fcmTokenHash(b.token),u.clientId,u.id).run();
+    return json({ok:true});
+   }
+   return json({message:'Rota inexistente'},404);
+  }
   if(p[0]==='push'){
    if(p[1]==='key'&&method==='GET')return pushConfigured(env)?json({publicKey:env.NEXUS_VAPID_PUBLIC_KEY}):json({message:'Notificações não configuradas.'},503);
    if(p[1]==='subscribe'&&method==='POST'){
