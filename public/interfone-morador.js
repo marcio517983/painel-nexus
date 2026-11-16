@@ -2,6 +2,21 @@ const $=s=>document.querySelector(s);
 const reasons={entrega:'Entrega ou encomenda',visita:'Visita pessoal',servico:'Prestação de serviço',outro:'Outro assunto'};
 const notice=s=>$('#notice').textContent=s;
 let profile,activeCall=null,peer=null,stream=null,currentRing=null,ringInterval=null,alertCtx=null,pollBusy=false,processing=false;
+const nexusNative=()=>window.Capacitor?.Plugins?.NexusCall||null;
+let lastNativeCallId=null;
+async function showNativeIncoming(c){
+ const native=nexusNative();
+ if(!native||lastNativeCallId===c.id)return;
+ lastNativeCallId=c.id;
+ try{
+  await native.showIncoming({callId:c.id,label:c.label,reason:reasons[c.reason]||'Visitante na portaria',expires:c.expires});
+ }catch(e){lastNativeCallId=null;notice('Alerta Android indisponível: '+(e.message||e));}
+}
+function closeNativeIncoming(id){
+ if(!id)return;
+ nexusNative()?.dismiss({callId:id}).catch(()=>{});
+ if(lastNativeCallId===id)lastNativeCallId=null;
+}
 async function req(path,init={}){
  const r=await fetch('/api/intercom/'+path,{cache:'no-store',credentials:'same-origin',...init});
  const b=await r.json();if(!r.ok)throw Error(b.message||'Falha ao consultar o interfone');return b;
@@ -25,7 +40,9 @@ function startRing(){
  play();ringInterval=setInterval(play,3600);
 }
 function clearPopup(){
+ const old=currentRing;
  stopRing();currentRing=null;
+ closeNativeIncoming(old);
  if($('#incoming-dialog').open)$('#incoming-dialog').close();
 }
 function dismissPush(id){
@@ -45,6 +62,7 @@ function renderIncoming(c){
   startRing();
   if(navigator.vibrate)navigator.vibrate([250,130,250]);
   document.title='📞 Interfone chamando — NexusMaster';
+  if(nexusNative())showNativeIncoming(c);
  }
 }
 async function refresh(){
@@ -162,6 +180,21 @@ async function enableNotifications(){
  const button=$('#enable-notifications'),status=$('#notification-status');
  button.disabled=true;
  try{
+  const native=nexusNative();
+  if(native){
+    const statusInfo=await native.enable();
+    if(!statusInfo.notificationEnabled)throw Error('Autorize as notificações Android para o NexusMaster nas configurações do aparelho.');
+    if(!statusInfo.fullScreenEnabled){
+      status.textContent='Notificações permitidas. Autorize também chamadas em tela cheia nas configurações do Android.';
+      await native.fullScreenSettings();
+      button.disabled=false;
+      return;
+    }
+    status.textContent='Alertas de chamadas Android habilitados. Para receber com o APK fechado, ainda é necessária a integração Firebase FCM.';
+    button.textContent='Alertas Android ativados';
+    button.hidden=true;
+    return;
+  }
   if(!('Notification' in window)||!('PushManager' in window)||!('serviceWorker' in navigator)){
    throw Error('Este navegador não oferece notificações Push para o aplicativo.');
   }
@@ -185,6 +218,10 @@ async function enableNotifications(){
 }
 $('#enable-notifications').onclick=enableNotifications;
 async function checkNotificationState(){
+ if(nexusNative()){
+  $('#notification-status').textContent='APK Android: toque em Ativar notificações para permitir chamadas e apresentação em tela cheia.';
+  return;
+ }
  if(!('Notification' in window))return;
  if(Notification.permission==='denied')$('#notification-status').textContent='Notificações bloqueadas. Autorize o NexusMaster nas configurações do navegador.';
  if(Notification.permission==='granted'){
