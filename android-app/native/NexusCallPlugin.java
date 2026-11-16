@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 import androidx.core.app.NotificationManagerCompat;
+import com.google.firebase.messaging.FirebaseMessaging;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -74,6 +75,19 @@ public class NexusCallPlugin extends Plugin {
     public void releaseSpeaker(PluginCall call) {
         IntercomAudioRoute.stop(getContext());
         call.resolve();
+    }
+    /** Get a Firebase registration token. Called only after a NexusMaster login. */
+    @PluginMethod
+    public void fcmToken(PluginCall call) {
+        FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task->{
+            if (!task.isSuccessful() || task.getResult()==null || task.getResult().isEmpty()) {
+                call.reject("Não foi possível registrar este celular no Firebase.");
+                return;
+            }
+            JSObject data=new JSObject();
+            data.put("token",task.getResult());
+            call.resolve(data);
+        });
     }
     @PluginMethod
     public void dismiss(PluginCall call){
