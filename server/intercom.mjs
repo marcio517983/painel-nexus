@@ -1,5 +1,6 @@
 import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {identity, query, now} from './auth.mjs';
+import {endpointHash,validSubscription,pushConfigured,sendWebPush} from './intercom-push.mjs';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const digest=s=>createHash('sha256').update(String(s)).digest('hex');
@@ -13,6 +14,23 @@ const publicState=c=>({id:c.id,status:c.status,createdAt:c.created_at,expires:c.
 const validRole=u=>u&&['morador','sindico'].includes(u.role);
 const permitted=async(env,u,unitId)=> !!(await query(env,'SELECT 1 FROM intercom_unit_members WHERE client_id=? AND unit_id=? AND user_id=?',u.clientId,unitId,u.id).first())||u.role==='sindico';
 const rate=async(env,key,limit=5)=>{const stamp=now(),bucket=Math.floor(stamp/600);await query(env,'DELETE FROM intercom_rate_limits WHERE bucket<?',bucket-2).run();const r=await query(env,'INSERT INTO intercom_rate_limits(key,bucket,n) VALUES(?,?,1) ON CONFLICT(key,bucket) DO UPDATE SET n=n+1 RETURNING n',key,bucket).first();return Number(r.n)<=limit;};
+async function notifyResidents(env,clientId,unitId,reason,callId,expires){
+ if(!pushConfigured(env))return;
+ try{
+  const rows=(await query(env,`SELECT p.endpoint,p.p256dh,p.auth,p.endpoint_hash,p.user_id
+   FROM intercom_push_subscriptions p
+   JOIN intercom_unit_members m ON m.client_id=p.client_id AND m.user_id=p.user_id
+   WHERE p.client_id=? AND m.unit_id=? LIMIT 24`,clientId,unitId).all()).results;
+  if(!rows.length)return;
+  const payload={kind:'intercom',callId,expires,reason,unitId};
+  await Promise.allSettled(rows.map(async row=>{
+   const result=await sendWebPush(env,{endpoint:row.endpoint,keys:{p256dh:row.p256dh,auth:row.auth}},payload);
+   if([404,410].includes(result.status)){
+    await query(env,'DELETE FROM intercom_push_subscriptions WHERE client_id=? AND user_id=? AND endpoint_hash=?',clientId,row.user_id,row.endpoint_hash).run().catch(()=>{});
+   }
+  }));
+ }catch{/* A falha em Push nunca cancela a chamada do visitante. */}
+}
 async function payloadSignal(r){const text=await r.text();if(text.length>70000)throw Error('Sinalização muito grande');const b=JSON.parse(text);if(!['offer','answer'].includes(b?.type)||typeof b.sdp!=='string'||b.sdp.length>65000)throw Error('Sinalização inválida');return {type:b.type,sdp:b.sdp};}
 async function payload(r){const txt=await r.text();if(txt.length>1500)throw Error('Corpo muito grande');return JSON.parse(txt);}
 export async function intercom(r,env){
@@ -37,6 +55,7 @@ export async function intercom(r,env){
     if(pending)return json({message:'Esta unidade está recebendo outra chamada.'},409);
     const id=randomUUID(),secret=token(),created=now();
     await query(env,'INSERT INTO intercom_calls(id,client_id,unit_id,reason,token_hash,status,created_at,expires) VALUES(?,?,?,?,?,?,?,?)',id,cid,unitId,reason,digest(secret),'ringing',created,created+30).run();
+    await notifyResidents(env,cid,unitId,reason,id,created+30);
     return json({callId:id,callToken:secret,status:'ringing',expires:created+30},201);
    }
    if(p[2]==='calls'&&p[3]&&['offer','answer'].includes(p[4])){
@@ -61,6 +80,27 @@ export async function intercom(r,env){
    return json({message:'Rota inexistente'},404);
   }
   const u=await identity(r,env);if(!validRole(u))return json({message:'Entre como morador ou síndico'},401);
+  if(p[0]==='push'){
+   if(p[1]==='key'&&method==='GET')return pushConfigured(env)?json({publicKey:env.NEXUS_VAPID_PUBLIC_KEY}):json({message:'Notificações não configuradas.'},503);
+   if(p[1]==='subscribe'&&method==='POST'){
+    const b=await payload(r);
+    if(!validSubscription(b))return json({message:'Assinatura de notificações inválida.'},400);
+    const hash=endpointHash(b.endpoint);
+    // A assinatura identifica uma instalação do navegador, não pode pertencer a dois usuários.
+    await query(env,'DELETE FROM intercom_push_subscriptions WHERE endpoint_hash=?',hash).run();
+    await query(env,`INSERT INTO intercom_push_subscriptions
+     (client_id,user_id,endpoint_hash,endpoint,p256dh,auth,created_at)
+     VALUES(?,?,?,?,?,?,?)`,u.clientId,u.id,hash,b.endpoint,b.keys.p256dh,b.keys.auth,now()).run();
+    return json({ok:true},201);
+   }
+   if(p[1]==='unsubscribe'&&method==='POST'){
+    const b=await payload(r);
+    if(typeof b.endpoint!=='string'||b.endpoint.length>2048)return json({message:'Assinatura inválida.'},400);
+    await query(env,'DELETE FROM intercom_push_subscriptions WHERE client_id=? AND user_id=? AND endpoint_hash=?',u.clientId,u.id,endpointHash(b.endpoint)).run();
+    return json({ok:true});
+   }
+   return json({message:'Rota inexistente'},404);
+  }
   if(p[0]==='units'){
    if(method==='GET'){
     const rows=await query(env,'SELECT id,label,enabled FROM intercom_units WHERE client_id=? ORDER BY label',u.clientId).all();
