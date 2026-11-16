@@ -1,0 +1,57 @@
+name: Build NexusMaster Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/nexusmaster-android-apk]
+    paths:
+      - "android-app/**"
+      - ".github/workflows/build-android-apk.yml"
+permissions:
+  contents: read
+jobs:
+  build-debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: android-app/package.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK components
+        run: |
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Capacitor and generate Android project
+        working-directory: android-app
+        run: |
+          npm install --no-audit --no-fund
+          npx cap add android
+          npx cap sync android
+      - name: Configure app permissions and NexusMaster icon
+        run: |
+          python3 -m pip install --user --quiet Pillow
+          python3 android-app/scripts/patch_android.py
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile debug Android APK
+        working-directory: android-app/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Prepare APK
+        run: |
+          mkdir -p out
+          cp android-app/android/app/build/outputs/apk/debug/app-debug.apk out/NexusMaster-Teste-debug.apk
+          sha256sum out/NexusMaster-Teste-debug.apk > out/SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NexusMaster-Android-APK-Teste
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
