@@ -31,7 +31,6 @@ function vapidJwt(endpoint,config){
  const header=b64(JSON.stringify({typ:'JWT',alg:'ES256'}));
  const payload=b64(JSON.stringify({aud:new URL(endpoint).origin,exp:Math.floor(Date.now()/1000)+3600,sub:config.NEXUS_VAPID_SUBJECT||'mailto:suporte@nexusmaster.invalid'}));
  const unsigned=header+'.'+payload;
- const signature=createSign('SHA256').update(unsigned).end();
  const signer=createSign('SHA256');signer.update(unsigned);signer.end();
  const token=unsigned+'.'+b64(signer.sign({key:createPrivateKey({key:jwk,format:'jwk'}),dsaEncoding:'ieee-p1363'}));
  return {token,publicKey:b64(publicKey)};
