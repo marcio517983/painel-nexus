@@ -17,6 +17,24 @@ function releaseNativeSpeaker(){
  const native=nexusNative();
  if(native?.releaseSpeaker)native.releaseSpeaker().catch(()=>{});
 }
+async function registerFirebaseDevice({silent=false}={}){
+ const native=nexusNative();
+ if(!native?.fcmToken)return false;
+ try{
+  const result=await native.fcmToken();
+  if(!result?.token)throw Error('Token Firebase não disponível.');
+  const linked=await post('fcm/register',{token:result.token});
+  if(!silent){
+   $('#notification-status').textContent=linked.deliveryConfigured?
+    'Celular vinculado ao Firebase. Chamadas externas podem ser entregues com o app em segundo plano.':
+    'Celular cadastrado no Firebase. Falta habilitar a autorização de envio FCM no servidor Vercel.';
+  }
+  return true;
+ }catch(e){
+  if(!silent)$('#notification-status').textContent='FCM ainda não vinculado: '+(e.message||e);
+  return false;
+ }
+}
 async function showNativeIncoming(c){
  const native=nexusNative();
  if(!native||lastNativeCallId===c.id)return;
@@ -214,7 +232,7 @@ async function enableNotifications(){
       button.disabled=false;
       return;
     }
-    status.textContent='Alertas de chamadas Android habilitados. Para receber com o APK fechado, ainda é necessária a integração Firebase FCM.';
+    await registerFirebaseDevice();
     button.textContent='Alertas Android ativados';
     button.hidden=true;
     return;
@@ -276,6 +294,10 @@ async function setup(){
    await loadUnits();
   }
   await checkNotificationState();
+  if(nexusNative()?.fcmToken){
+   const info=await nexusNative().status().catch(()=>null);
+   if(info?.notificationEnabled)await registerFirebaseDevice({silent:true});
+  }
   await refresh();
   setInterval(refresh,2300);
  }catch(e){notice('Não foi possível iniciar o painel: '+e.message)}
