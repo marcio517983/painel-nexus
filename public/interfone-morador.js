@@ -1,28 +1,222 @@
-const $=s=>document.querySelector(s),notice=s=>$('#notice').textContent=s;let profile,activeCall=null,peer=null,stream=null;
-async function req(path,init={}){const r=await fetch('/api/intercom/'+path,{cache:'no-store',...init});const b=await r.json();if(!r.ok)throw Error(b.message||'Falha');return b;}
-const post=(path,value)=>req(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});
-async function refresh(){try{const d=await req('calls');$('#calls').replaceChildren();if(!d.calls.length){$('#calls').textContent='Nenhuma chamada pendente.';return;}for(const c of d.calls){const box=document.createElement('div');box.className='entry';const t=document.createElement('strong');t.textContent=c.label;box.append(t);const detail=document.createElement('p');detail.textContent='Motivo: '+({entrega:'Entrega',visita:'Visita',servico:'Serviço',outro:'Outro assunto'}[c.reason]||c.reason)+' • expira em '+Math.max(0,c.expires-Math.floor(Date.now()/1000))+' s';box.append(detail);for(const [name,verb,className] of [['Atender','answer',''],['Recusar','decline','danger']]){const b=document.createElement('button');b.className=className;b.textContent=name;b.onclick=async()=>{try{await post('calls/'+c.id+'/'+verb,{});if(verb==='answer'){notice('Chamada atendida. Conectando microfone...');connectAudio(c.id).catch(e=>notice('Falha no áudio: '+e.message));}else notice('Chamada recusada.');refresh();}catch(e){notice(e.message)}};box.append(b)}$('#calls').append(box)}}catch(e){notice(e.message);}}
-async function setup(){const r=await fetch('/api/auth/me');if(!r.ok){notice('Faça login no NexusMaster e abra esta página novamente.');return;}const d=await r.json();profile=d.user;if(!['morador','sindico'].includes(profile.role)){notice('Acesso restrito a moradores e síndicos.');return;}if(profile.role==='sindico'){$('#setup').hidden=false;const central=profile.clientId;$('#qrurl').textContent=location.origin+'/interfone.html?central='+encodeURIComponent(central);await loadUnits();}await refresh();setInterval(refresh,3000);}
-async function loadUnits(){const d=await req('units');$('#units').replaceChildren();for(const u of d.units){const opt=document.createElement('option');opt.value=u.id;opt.textContent=u.label;$('#units').append(opt)}}
-$('#addUnit').onclick=async()=>{try{await post('units',{id:$('#unitId').value,label:$('#unitLabel').value});notice('Residência cadastrada.');loadUnits();}catch(e){notice(e.message)}};
-$('#addMember').onclick=async()=>{try{await post('members',{unitId:$('#units').value,userId:$('#userId').value});notice('Morador vinculado.');}catch(e){notice(e.message)}};
-setup();
-
-const sleep=t=>new Promise(r=>setTimeout(r,t));
-async function completeIce(pc){if(pc.iceGatheringState==='complete')return;await Promise.race([new Promise(resolve=>pc.addEventListener('icegatheringstatechange',function done(){if(pc.iceGatheringState==='complete'){pc.removeEventListener('icegatheringstatechange',done);resolve();}})),sleep(9000)]);}
-async function connectAudio(id){
- if(activeCall)return notice('Você já está em outra chamada.');
- stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});activeCall=id;
- peer=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
- stream.getTracks().forEach(track=>peer.addTrack(track,stream));
- const remote=new Audio();remote.autoplay=true;remote.setAttribute('playsinline','');remote.style.display='none';document.body.append(remote);
- peer.ontrack=e=>remote.srcObject=e.streams[0];
- peer.onconnectionstatechange=()=>{if(peer?.connectionState==='connected')notice('Interfone conectado. Áudio ativo.');};
- let offer;
- for(let i=0;i<35&&activeCall===id;i++){const d=await req('calls/'+id+'/signal');if(d.offer){offer=d.offer;break;}await sleep(1000);}
- if(!offer)throw Error('Visitante não iniciou áudio.');
- await peer.setRemoteDescription(offer);const answer=await peer.createAnswer();await peer.setLocalDescription(answer);await completeIce(peer);
- await post('calls/'+id+'/signal',peer.localDescription);
- const close=document.createElement('button');close.textContent='Desligar chamada';close.className='danger';$('#calls').prepend(close);
- close.onclick=async()=>{await post('calls/'+id+'/hangup',{}).catch(()=>{});peer?.close();stream?.getTracks().forEach(t=>t.stop());peer=null;stream=null;activeCall=null;close.remove();notice('Chamada encerrada.');};
+const $=s=>document.querySelector(s);
+const reasons={entrega:'Entrega ou encomenda',visita:'Visita pessoal',servico:'Prestação de serviço',outro:'Outro assunto'};
+const notice=s=>$('#notice').textContent=s;
+let profile,activeCall=null,peer=null,stream=null,currentRing=null,ringInterval=null,alertCtx=null,pollBusy=false,processing=false;
+async function req(path,init={}){
+ const r=await fetch('/api/intercom/'+path,{cache:'no-store',credentials:'same-origin',...init});
+ const b=await r.json();if(!r.ok)throw Error(b.message||'Falha ao consultar o interfone');return b;
 }
+const post=(path,value)=>req(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const validUser=()=>profile&&['morador','sindico'].includes(profile.role);
+function beep(frequency=460,duration=.25){
+ if(!alertCtx||alertCtx.state!=='running')return;
+ const oscillator=alertCtx.createOscillator(),gain=alertCtx.createGain();
+ oscillator.type='sine';oscillator.frequency.value=frequency;
+ gain.gain.value=.07;oscillator.connect(gain).connect(alertCtx.destination);
+ oscillator.start();oscillator.stop(alertCtx.currentTime+duration);
+}
+function stopRing(){
+ if(ringInterval){clearInterval(ringInterval);ringInterval=null;}
+}
+function startRing(){
+ if(ringInterval)return;
+ const play=()=>{beep(445,.22);setTimeout(()=>beep(445,.22),500)};
+ play();ringInterval=setInterval(play,3600);
+}
+function clearPopup(){
+ stopRing();currentRing=null;
+ if($('#incoming-dialog').open)$('#incoming-dialog').close();
+}
+function dismissPush(id){
+ navigator.serviceWorker?.controller?.postMessage({type:'nexus-dismiss-intercom',callId:id});
+}
+function renderIncoming(c){
+ if(activeCall||processing)return;
+ const now=Math.floor(Date.now()/1000);
+ if(c.expires<=now)return clearPopup();
+ const isNew=currentRing!==c.id;
+ currentRing=c.id;
+ $('#incoming-unit').textContent=c.label;
+ $('#incoming-reason').textContent='Motivo: '+(reasons[c.reason]||'Chamada na entrada');
+ $('#incoming-countdown').textContent='Tempo restante: '+Math.max(0,c.expires-now)+' segundos';
+ if(isNew){
+  if(!$('#incoming-dialog').open)$('#incoming-dialog').showModal();
+  startRing();
+  if(navigator.vibrate)navigator.vibrate([250,130,250]);
+  document.title='📞 Interfone chamando — NexusMaster';
+ }
+}
+async function refresh(){
+ if(!validUser()||pollBusy)return;
+ pollBusy=true;
+ try{
+  const d=await req('calls');
+  const calls=d.calls||[];lastCalls=calls;
+  $('#calls').replaceChildren();
+  if(!calls.length){$('#calls').textContent='Nenhuma chamada pendente.';if(currentRing&&!processing)clearPopup();}
+  else for(const c of calls){
+   const box=document.createElement('div');box.className='entry';
+   const h=document.createElement('strong');h.textContent=c.label;box.append(h);
+   const p=document.createElement('p');p.textContent='Motivo: '+(reasons[c.reason]||c.reason)+' • '+Math.max(0,c.expires-Math.floor(Date.now()/1000))+' s restantes';box.append(p);
+   for(const [title,kind,css] of [['Atender','answer',''],['Recusar','decline','danger']]){
+    const b=document.createElement('button');b.textContent=title;b.className=css;b.type='button';
+    b.onclick=()=>act(c,kind);box.append(b);
+   }
+   $('#calls').append(box);
+  }
+  if(!activeCall&&!processing){const focus=new URLSearchParams(location.search).get('call');const next=calls.find(c=>c.id===focus)||calls[0];if(next)renderIncoming(next);}
+  if(activeCall)await syncActiveCall();
+ }catch(e){notice(e.message)}finally{pollBusy=false;}
+}
+async function act(c,kind){
+ if(processing||activeCall)return;
+ processing=true;stopRing();
+ $('#incoming-answer').disabled=true;$('#incoming-decline').disabled=true;
+ let localStream=null;
+ try{
+  if(kind==='answer'){
+   localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+   await post('calls/'+c.id+'/answer',{});
+   stream=localStream;localStream=null;activeCall=c.id;
+   clearPopup();dismissPush(c.id);
+   $('#active-audio').hidden=false;$('#active-audio-label').textContent='Conectando a '+c.label+'...';
+   notice('Chamada atendida. Preparando áudio...');
+   connectAudio(c.id).catch(async e=>{
+    notice('Não foi possível estabelecer o áudio: '+e.message);
+    await hangup();
+   });
+  }else{
+   await post('calls/'+c.id+'/decline',{});
+   clearPopup();dismissPush(c.id);notice('Chamada recusada.');
+  }
+ }catch(e){notice('Falha ao '+(kind==='answer'?'atender':'recusar')+': '+e.message)}
+ finally{
+  localStream?.getTracks().forEach(t=>t.stop());
+  processing=false;$('#incoming-answer').disabled=false;$('#incoming-decline').disabled=false;
+  refresh();
+ }
+}
+$('#incoming-answer').onclick=()=>{
+ if(!currentRing)return;
+ const c=currentCall();if(c)act(c,'answer');
+};
+$('#incoming-decline').onclick=()=>{
+ if(!currentRing)return;
+ const c=currentCall();if(c)act(c,'decline');
+};
+let lastCalls=[];
+function currentCall(){return lastCalls.find(c=>c.id===currentRing)||null;}
+$('#incoming-dialog').addEventListener('cancel',e=>e.preventDefault());
+async function completeIce(pc){
+ if(pc.iceGatheringState==='complete')return;
+ await Promise.race([new Promise(resolve=>{
+  function change(){if(pc.iceGatheringState==='complete'){pc.removeEventListener('icegatheringstatechange',change);resolve()}}
+  pc.addEventListener('icegatheringstatechange',change);
+ }),sleep(9000)]);
+}
+async function connectAudio(id){
+ if(!stream||activeCall!==id)return;
+ peer=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+ for(const track of stream.getTracks())peer.addTrack(track,stream);
+ peer.ontrack=event=>{
+  const audio=$('#remote-audio');audio.srcObject=event.streams[0];
+  audio.play().catch(()=>notice('Toque na tela para liberar o áudio da ligação.'));
+ };
+ peer.onconnectionstatechange=()=>{
+  if(peer?.connectionState==='connected'){$('#active-audio-label').textContent='Em comunicação';notice('Áudio conectado.');}
+  if(['failed','disconnected'].includes(peer?.connectionState||''))notice('A comunicação ficou instável. Confira sua conexão.');
+ };
+ let offer=null;
+ for(let i=0;i<36&&activeCall===id;i++){
+  const d=await req('calls/'+id+'/signal');
+  if(d.offer){offer=d.offer;break}
+  await sleep(1000);
+ }
+ if(!offer||activeCall!==id)throw Error('Oferta de áudio indisponível');
+ await peer.setRemoteDescription(offer);
+ const answer=await peer.createAnswer();await peer.setLocalDescription(answer);await completeIce(peer);
+ await post('calls/'+id+'/signal',peer.localDescription);
+}
+async function hangup(){
+ const id=activeCall;
+ activeCall=null;peer?.close();peer=null;
+ stream?.getTracks().forEach(t=>t.stop());stream=null;
+ $('#remote-audio').srcObject=null;$('#active-audio').hidden=true;
+ if(id)await post('calls/'+id+'/hangup',{}).catch(()=>{});
+ notice('Chamada encerrada.');refresh();
+}
+$('#hangup').onclick=hangup;
+async function syncActiveCall(){
+ if(!activeCall)return;
+ try{
+  const c=await req('calls/'+activeCall+'/status');
+  if(c.status!=='answered')await hangup();
+ }catch{ /* falha temporária; não desligar sem confirmação */ }
+}
+function decodeKey(base64url){
+ const raw=atob(base64url.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-base64url.length%4)%4));
+ return Uint8Array.from(raw,c=>c.charCodeAt(0));
+}
+async function enableNotifications(){
+ const button=$('#enable-notifications'),status=$('#notification-status');
+ button.disabled=true;
+ try{
+  if(!('Notification' in window)||!('PushManager' in window)||!('serviceWorker' in navigator)){
+   throw Error('Este navegador não oferece notificações Push para o aplicativo.');
+  }
+  // A user gesture explicitly arms the in-app ring tone (autoplay restrictions).
+  try{alertCtx??=new (window.AudioContext||window.webkitAudioContext)();await alertCtx.resume()}catch{}
+  const permission=await Notification.requestPermission();
+  if(permission!=='granted')throw Error('Permissão de notificações não concedida. Verifique as configurações do celular.');
+  const key=await req('push/key');
+  await navigator.serviceWorker.register('/sw.js',{scope:'/'});
+  const reg=await navigator.serviceWorker.ready;
+  let sub=await reg.pushManager.getSubscription();
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decodeKey(key.publicKey)});
+  await post('push/subscribe',sub.toJSON());
+  status.textContent='Notificações ativadas neste aparelho! Os próximos chamados poderão aparecer mesmo com o PWA fechado.';
+  button.textContent='Alertas ativados';button.hidden=true;
+  localStorage.setItem('nexus:intercom-notify-enabled','1');
+ }catch(e){
+  status.textContent=e.message;
+  button.disabled=false;
+ }
+}
+$('#enable-notifications').onclick=enableNotifications;
+async function checkNotificationState(){
+ if(!('Notification' in window))return;
+ if(Notification.permission==='denied')$('#notification-status').textContent='Notificações bloqueadas. Autorize o NexusMaster nas configurações do navegador.';
+ if(Notification.permission==='granted'){
+  $('#notification-status').textContent='Permissão concedida. Use o botão para vincular este dispositivo à sua residência.';
+ }
+}
+async function loadUnits(){
+ const d=await req('units');$('#units').replaceChildren();
+ for(const u of d.units){const opt=document.createElement('option');opt.value=u.id;opt.textContent=u.label;$('#units').append(opt)}
+}
+$('#addUnit').onclick=async()=>{
+ try{await post('units',{id:$('#unitId').value,label:$('#unitLabel').value});notice('Residência cadastrada.');await loadUnits()}
+ catch(e){notice(e.message)}
+};
+$('#addMember').onclick=async()=>{
+ try{await post('members',{unitId:$('#units').value,userId:$('#userId').value});notice('Morador vinculado.')}
+ catch(e){notice(e.message)}
+};
+async function setup(){
+ try{
+  const response=await fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok){notice('Faça login no NexusMaster e abra esta página novamente.');return}
+  profile=(await response.json()).user;
+  if(!validUser()){notice('Acesso restrito a moradores e síndicos.');return}
+  if(profile.role==='sindico'){
+   $('#setup').hidden=false;
+   $('#qrurl').textContent=location.origin+'/interfone.html?central='+encodeURIComponent(profile.clientId);
+   await loadUnits();
+  }
+  await checkNotificationState();
+  await refresh();
+  setInterval(refresh,2300);
+ }catch(e){notice('Não foi possível iniciar o painel: '+e.message)}
+}
+setup();
