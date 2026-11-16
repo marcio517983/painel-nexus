@@ -27,7 +27,7 @@ self.addEventListener('push',event=>{
  event.waitUntil(self.registration.showNotification('NexusMaster • Interfone chamando',{
   body,tag:'nexus-intercom-'+message.callId,
   icon:'/icons/nexusmaster-192.png',badge:'/icons/nexusmaster-192.png',
-  vibrate:[400,160,400],requireInteraction:true,
+  vibrate:[400,160,400],requireInteraction:false,
   data:{path,expires:message.expires},
   actions:[{action:'open',title:'Ver chamada'}]
  }));
@@ -48,4 +48,11 @@ self.addEventListener('notificationclick',event=>{
   }
   return self.clients.openWindow(url);
  })());
+});
+
+self.addEventListener('message',event=>{
+ const data=event.data;
+ if(data?.type!=='nexus-dismiss-intercom'||!/^[a-f0-9-]{36}$/i.test(data.callId||''))return;
+ event.waitUntil(self.registration.getNotifications({tag:'nexus-intercom-'+data.callId})
+  .then(notifications=>notifications.forEach(notification=>notification.close())));
 });
