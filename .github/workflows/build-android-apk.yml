@@ -25,7 +25,9 @@ jobs:
       - name: Install Android SDK components
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)
+          test -n "$SDKMANAGER" || { echo "Android sdkmanager not installed"; exit 1; }
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
       - name: Install Capacitor and generate Android project
         working-directory: android-app
         run: |
