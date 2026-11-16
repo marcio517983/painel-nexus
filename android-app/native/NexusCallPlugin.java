@@ -58,6 +58,23 @@ public class NexusCallPlugin extends Plugin {
         getActivity().runOnUiThread(()->IncomingCallController.show(getContext(),id,label,reason,expires,true));
         call.resolve();
     }
+    /**
+     * Route the WebRTC conversation to the phone speaker. Calling this a second
+     * time after getUserMedia() keeps the default even if WebRTC reconfigures audio.
+     */
+    @PluginMethod
+    public void preferSpeaker(PluginCall call) {
+        boolean selected=IntercomAudioRoute.useSpeaker(getContext());
+        JSObject result=new JSObject();
+        result.put("selected",selected);
+        result.put("route",selected?"speaker":"system");
+        call.resolve(result);
+    }
+    @PluginMethod
+    public void releaseSpeaker(PluginCall call) {
+        IntercomAudioRoute.stop(getContext());
+        call.resolve();
+    }
     @PluginMethod
     public void dismiss(PluginCall call){
         String id=call.getString("callId");
