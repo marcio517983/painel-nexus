@@ -10,7 +10,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(state);
         openCall(getIntent());
     }
-    @Override protected void onDestroy(){
+    @Override public void onDestroy(){
         IntercomAudioRoute.stop(this);
         super.onDestroy();
     }
