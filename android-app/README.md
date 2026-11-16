@@ -17,6 +17,14 @@ Este APK é um **protótipo Capacitor** com o painel atual do NexusMaster e o in
 - O alerta nativo é disparado pela página web enquanto o processo do APK está executando. Com o APK **encerrado ou com timers suspensos em segundo plano**, ainda não há entrega confiável. **FCM é obrigatório para a experiência nativa com app fechado/tela bloqueada**, com registro do dispositivo, credenciais Firebase e envio de mensagens do servidor.
 - Esta versão é uma prova de interface Android; não é um substituto confiável do interfone físico até testarmos FCM, bateria, interrupções, acessibilidade, limites de spam e rede móvel.
 
+## Viva-voz automático — terceiro piloto
+
+- Ao tocar **Atender**, o aplicativo seleciona automaticamente o **alto-falante externo (viva-voz)** antes de solicitar o microfone; repete a seleção após a captura e quando o áudio remoto chega.
+- Android 12+ utiliza `AudioManager.setCommunicationDevice(TYPE_BUILTIN_SPEAKER)`; aparelhos Android anteriores utilizam `setSpeakerphoneOn(true)` como compatibilidade.
+- Ao desligar, falhar a captura ou fechar a atividade, o NexusMaster desfaz a preferência temporária e tenta restaurar o modo de áudio anterior.
+- A escolha do microfone e as permissões exibidas pelo Android **não** são escondidas à força. O sistema pode rejeitar o roteamento caso haja outros aplicativos em chamada ou restrições específicas do fabricante.
+- A implementação está somente no **APK Android de testes**. No PWA acessado pelo navegador, a seleção de saída continua sob controle do navegador e do sistema.
+
 ## Limite importante
 **Este primeiro APK NÃO implementa uma ligação nativa com o aplicativo fechado ou a tela bloqueada.** O Web Push do navegador/PWA não pode ser presumido funcional dentro da WebView Capacitor. Para o toque de interfone de verdade em segundo plano, precisamos configurar um projeto Firebase Cloud Messaging (FCM) e enviar push de dados do backend para um serviço Android que cria uma notificação de chamada CallStyle/full-screen quando autorizado pelo Android. Esse desenvolvimento será separado; não reutilizar o segredo do Turso nem tokens VAPID para FCM.
 
