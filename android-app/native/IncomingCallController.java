@@ -17,6 +17,7 @@ public final class IncomingCallController {
     private IncomingCallController() {}
     public static final String CHANNEL_ID = "nexus_intercom_calls_v1";
     private static final int NOTIFICATION_ID = 10201;
+    private static String lastDisplayedCallId = null;
     public static final String EXTRA_CALL_ID = "nexus_call_id";
     public static final String EXTRA_LABEL = "nexus_label";
     public static final String EXTRA_REASON = "nexus_reason";
@@ -35,9 +36,12 @@ public final class IncomingCallController {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         return intent;
     }
-    public static void show(Context context, String callId, String label, String reason, long expires, boolean appVisible) {
+    public static synchronized void show(Context context, String callId, String label, String reason, long expires, boolean appVisible) {
         if (!isValidId(callId) || expires <= System.currentTimeMillis() / 1000L) return;
         if (expires > System.currentTimeMillis() / 1000L + 45L) return;
+        // FCM and the foreground WebView may discover the same call simultaneously.
+        if (callId.equals(lastDisplayedCallId)) return;
+        lastDisplayedCallId = callId;
         label = label == null ? "Residência" : label.substring(0, Math.min(label.length(), 80));
         reason = reason == null ? "Chamada na portaria" : reason.substring(0, Math.min(reason.length(), 70));
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -79,7 +83,8 @@ public final class IncomingCallController {
         }
         if (appVisible) context.startActivity(incoming);
     }
-    public static void dismiss(Context context, String id) {
+    public static synchronized void dismiss(Context context, String id) {
+        if (id != null && id.equals(lastDisplayedCallId)) lastDisplayedCallId = null;
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID);
         IncomingCallActivity.closeIfCurrent(id);
     }
