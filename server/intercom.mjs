@@ -22,7 +22,7 @@ export const intercomPilotRatePolicy=env=>({
 });
 const rate=async(env,key,limit=5,windowSeconds=600)=>{
  const stamp=now(),bucket=Math.floor(stamp/windowSeconds);
- await query(env,'DELETE FROM intercom_rate_limits WHERE bucket<?',bucket-2).run();
+ await query(env,'DELETE FROM intercom_rate_limits WHERE key=? AND bucket<?',key,bucket-2).run();
  const r=await query(env,'INSERT INTO intercom_rate_limits(key,bucket,n) VALUES(?,?,1) ON CONFLICT(key,bucket) DO UPDATE SET n=n+1 RETURNING n',key,bucket).first();
  return {allowed:Number(r.n)<=limit,retryAfterSeconds:windowSeconds-(stamp%windowSeconds)};
 };
