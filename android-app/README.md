@@ -9,6 +9,14 @@ Este APK é um **protótipo Capacitor** com o painel atual do NexusMaster e o in
 - Solicita permissão Android de microfone ao atender a ligação, caso ainda não concedida.
 - Permissões e navegação remota limitadas ao servidor HTTPS da prévia.
 
+## Toque nativo — segundo piloto
+
+- O aplicativo Android passa a apresentar uma tela nativa de chamada com toque repetido e botões **Abrir e atender** / **Ignorar** quando a página do morador detecta uma chamada ainda válida.
+- **Abrir e atender** encaminha para a central web, onde o morador confirma **Atender** e ativa o microfone. **Ignorar** fecha o alerta local, mas a chamada continua até expirar ou ser recusada na central. Não há resposta automática.
+- Android 13+ pode exigir permissão para notificações; Android 14+ também pode exigir a permissão de **notificações em tela cheia**. A central do interfone oferece botão para abrir essas configurações.
+- O alerta nativo é disparado pela página web enquanto o processo do APK está executando. Com o APK **encerrado ou com timers suspensos em segundo plano**, ainda não há entrega confiável. **FCM é obrigatório para a experiência nativa com app fechado/tela bloqueada**, com registro do dispositivo, credenciais Firebase e envio de mensagens do servidor.
+- Esta versão é uma prova de interface Android; não é um substituto confiável do interfone físico até testarmos FCM, bateria, interrupções, acessibilidade, limites de spam e rede móvel.
+
 ## Limite importante
 **Este primeiro APK NÃO implementa uma ligação nativa com o aplicativo fechado ou a tela bloqueada.** O Web Push do navegador/PWA não pode ser presumido funcional dentro da WebView Capacitor. Para o toque de interfone de verdade em segundo plano, precisamos configurar um projeto Firebase Cloud Messaging (FCM) e enviar push de dados do backend para um serviço Android que cria uma notificação de chamada CallStyle/full-screen quando autorizado pelo Android. Esse desenvolvimento será separado; não reutilizar o segredo do Turso nem tokens VAPID para FCM.
 
