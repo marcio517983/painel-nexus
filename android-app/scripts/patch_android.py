@@ -57,6 +57,14 @@ if "com.google.gms.google-services" not in data:
     data+="\napply plugin: 'com.google.gms.google-services'\n"
 gradle.write_text(data)
 
+# Firebase Messaging 26.x requires at least Android API 24.
+variablesGradle=root / "android/variables.gradle"
+variables=variablesGradle.read_text()
+if "minSdkVersion = 23" in variables:
+    variablesGradle.write_text(variables.replace("minSdkVersion = 23","minSdkVersion = 24"))
+elif "minSdkVersion = 24" not in variables:
+    raise SystemExit("Unsupported Android minimum SDK setting for Firebase Messaging.")
+
 projectGradle=root / "android/build.gradle"
 data=projectGradle.read_text()
 if "com.google.gms:google-services" not in data:
