@@ -1,5 +1,24 @@
 # NexusMaster — ativação isolada da prévia
 
+## Estado atual do ambiente (15/11/2026)
+
+**Concluído**: banco isolado `nexusmaster-teste`, URL e token com escopo Preview na branch `feature/interfone-virtual-mvp`; credenciais Master de testes; origem estável; migrações 001–005 e dados fictícios de interfone preparados automaticamente na compilação de Preview autorizada.
+
+- URL estável da branch: https://painel-nexus-nexus-iot-git-feature-interfon-a7cfd6-controws-iot.vercel.app
+- Login de teste (Master): `admin.teste@nexusmaster.invalid` — senha temporária comunicada privadamente ao responsável, **não salvar no GitHub**.
+- Login do morador fictício: `morador.piloto@nexusmaster.invalid` com central `interfone-piloto` — senha temporária comunicada privadamente.
+- Página do morador: `/interfone-morador.html`.
+- Página do visitante: `/interfone.html?central=interfone-piloto`.
+- Unidade fictícia cadastrada: `apto-102` — Apartamento 102.
+- Não existe acionador físico no piloto, e as prévias seguem protegidas por Vercel Authentication.
+
+**Proteção de migração:** `scripts/build.mjs` só inicializa Preview quando `NEXUS_PREVIEW_SCHEMA_INIT=1`, a branch Git é exatamente `feature/interfone-virtual-mvp` e a URL Turso corresponde **exatamente** ao banco de testes autorizado; o `scripts/seed-preview-intercom.mjs` repete a checagem antes de adicionar o condomínio fictício. Não desligar essa proteção.
+
+**Validação:** build remoto Vercel concluído, mensagens de migração e dados fictícios no build; workflow npm test/build aprovado. Falta validar manualmente login e chamada entre dois navegadores reais. O PWA ainda não tem notificações Push com app fechado e o WebRTC ainda não tem TURN.
+
+---
+
+
 **Não apontar a prévia para o banco Turso de produção.** As credenciais atuais do projeto Vercel só estão habilitadas em Production.
 
 ## Pré-requisito de conta externa (ação do proprietário)
