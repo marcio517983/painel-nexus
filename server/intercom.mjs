@@ -32,7 +32,7 @@ async function notifyResidents(env,clientId,unitId,reason,callId,expires){
  }catch{/* A falha em Push nunca cancela a chamada do visitante. */}
 }
 async function payloadSignal(r){const text=await r.text();if(text.length>70000)throw Error('Sinalização muito grande');const b=JSON.parse(text);if(!['offer','answer'].includes(b?.type)||typeof b.sdp!=='string'||b.sdp.length>65000)throw Error('Sinalização inválida');return {type:b.type,sdp:b.sdp};}
-async function payload(r){const txt=await r.text();if(txt.length>1500)throw Error('Corpo muito grande');return JSON.parse(txt);}
+async function payload(r,maxSize=1500){const txt=await r.text();if(txt.length>maxSize)throw Error('Corpo muito grande');return JSON.parse(txt);}
 export async function intercom(r,env){
  try{
   const p=new URL(r.url).pathname.split('/').filter(Boolean).slice(2); // /api/intercom/...
@@ -83,7 +83,7 @@ export async function intercom(r,env){
   if(p[0]==='push'){
    if(p[1]==='key'&&method==='GET')return pushConfigured(env)?json({publicKey:env.NEXUS_VAPID_PUBLIC_KEY}):json({message:'Notificações não configuradas.'},503);
    if(p[1]==='subscribe'&&method==='POST'){
-    const b=await payload(r);
+    const b=await payload(r,4096);
     if(!validSubscription(b))return json({message:'Assinatura de notificações inválida.'},400);
     const hash=endpointHash(b.endpoint);
     // A assinatura identifica uma instalação do navegador, não pode pertencer a dois usuários.
@@ -94,7 +94,7 @@ export async function intercom(r,env){
     return json({ok:true},201);
    }
    if(p[1]==='unsubscribe'&&method==='POST'){
-    const b=await payload(r);
+    const b=await payload(r,4096);
     if(typeof b.endpoint!=='string'||b.endpoint.length>2048)return json({message:'Assinatura inválida.'},400);
     await query(env,'DELETE FROM intercom_push_subscriptions WHERE client_id=? AND user_id=? AND endpoint_hash=?',u.clientId,u.id,endpointHash(b.endpoint)).run();
     return json({ok:true});
@@ -125,6 +125,11 @@ export async function intercom(r,env){
    await query(env,"UPDATE intercom_calls SET status='missed',ended_at=? WHERE client_id=? AND status='ringing' AND expires<=?",now(),u.clientId,now()).run();
    const calls=(await query(env,"SELECT c.id,c.unit_id,c.reason,c.status,c.created_at,c.expires,u.label FROM intercom_calls c JOIN intercom_units u ON u.client_id=c.client_id AND u.id=c.unit_id WHERE c.client_id=? AND c.status='ringing' AND ( ?='sindico' OR EXISTS(SELECT 1 FROM intercom_unit_members m WHERE m.client_id=c.client_id AND m.unit_id=c.unit_id AND m.user_id=?)) ORDER BY c.created_at DESC LIMIT 15",u.clientId,u.role,u.id).all()).results;
    return json({calls});
+  }
+  if(p[0]==='calls'&&p[1]&&p[2]==='status'&&method==='GET'){
+   const c=await active(env,p[1]);
+   if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id))return json({message:'Chamada não autorizada'},403);
+   return json({status:c.status,expires:c.expires});
   }
   if(p[0]==='calls'&&p[1]&&p[2]==='signal'&&method==='GET'){
    const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id)||c.status!=='answered'||c.answered_by!==u.id)return json({message:'Chamada não autorizada'},403);
