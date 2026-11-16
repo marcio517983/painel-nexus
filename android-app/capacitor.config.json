@@ -1,0 +1,17 @@
+{
+  "appId": "com.nexusmaster.interfone.piloto",
+  "appName": "NexusMaster Teste",
+  "webDir": "www",
+  "server": {
+    "url": "https://painel-nexus-nexus-iot-git-feature-interfon-a7cfd6-controws-iot.vercel.app",
+    "cleartext": false,
+    "allowNavigation": [
+      "painel-nexus-nexus-iot-git-feature-interfon-a7cfd6-controws-iot.vercel.app"
+    ]
+  },
+  "android": {
+    "backgroundColor": "#0B1524",
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  }
+}
