@@ -4,6 +4,19 @@ const notice=s=>$('#notice').textContent=s;
 let profile,activeCall=null,peer=null,stream=null,currentRing=null,ringInterval=null,alertCtx=null,pollBusy=false,processing=false;
 const nexusNative=()=>window.Capacitor?.Plugins?.NexusCall||null;
 let lastNativeCallId=null;
+/** Android APK only: default the conversation to the built-in loudspeaker. */
+async function preferNativeSpeaker(){
+ const native=nexusNative();
+ if(!native?.preferSpeaker)return;
+ try{
+  const result=await native.preferSpeaker();
+  if(result?.selected===false)notice('Viva-voz indisponível neste aparelho. Verifique a saída de áudio.');
+ }catch{ /* Android can override routing; let WebRTC continue normally. */ }
+}
+function releaseNativeSpeaker(){
+ const native=nexusNative();
+ if(native?.releaseSpeaker)native.releaseSpeaker().catch(()=>{});
+}
 async function showNativeIncoming(c){
  const native=nexusNative();
  if(!native||lastNativeCallId===c.id)return;
@@ -94,7 +107,11 @@ async function act(c,kind){
  let localStream=null;
  try{
   if(kind==='answer'){
+   // Route BEFORE capture so the Android WebView does not start in earpiece mode.
+   await preferNativeSpeaker();
    localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+   // WebRTC may replace the routing decision when the microphone starts.
+   await preferNativeSpeaker();
    await post('calls/'+c.id+'/answer',{});
    stream=localStream;localStream=null;activeCall=c.id;
    clearPopup();dismissPush(c.id);
@@ -108,7 +125,10 @@ async function act(c,kind){
    await post('calls/'+c.id+'/decline',{});
    clearPopup();dismissPush(c.id);notice('Chamada recusada.');
   }
- }catch(e){notice('Falha ao '+(kind==='answer'?'atender':'recusar')+': '+e.message)}
+ }catch(e){
+  if(kind==='answer'&&!activeCall)releaseNativeSpeaker();
+  notice('Falha ao '+(kind==='answer'?'atender':'recusar')+': '+e.message);
+ }
  finally{
   localStream?.getTracks().forEach(t=>t.stop());
   processing=false;$('#incoming-answer').disabled=false;$('#incoming-decline').disabled=false;
@@ -138,6 +158,8 @@ async function connectAudio(id){
  peer=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
  for(const track of stream.getTracks())peer.addTrack(track,stream);
  peer.ontrack=event=>{
+  // The remote MediaStream may change audio devices after capture starts.
+  preferNativeSpeaker();
   const audio=$('#remote-audio');audio.srcObject=event.streams[0];
   audio.play().catch(()=>notice('Toque na tela para liberar o áudio da ligação.'));
  };
@@ -160,11 +182,13 @@ async function hangup(){
  const id=activeCall;
  activeCall=null;peer?.close();peer=null;
  stream?.getTracks().forEach(t=>t.stop());stream=null;
+ releaseNativeSpeaker();
  $('#remote-audio').srcObject=null;$('#active-audio').hidden=true;
  if(id)await post('calls/'+id+'/hangup',{}).catch(()=>{});
  notice('Chamada encerrada.');refresh();
 }
 $('#hangup').onclick=hangup;
+window.addEventListener('pagehide',releaseNativeSpeaker);
 async function syncActiveCall(){
  if(!activeCall)return;
  try{
