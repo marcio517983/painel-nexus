@@ -22,9 +22,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - uses: android-actions/setup-android@v3
       - name: Install Android SDK components
         run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
           sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
       - name: Install Capacitor and generate Android project
         working-directory: android-app
