@@ -29,6 +29,14 @@ activity.set(namespace+"excludeFromRecents","true")
 activity.set(namespace+"showWhenLocked","true")
 activity.set(namespace+"turnScreenOn","true")
 app.append(activity)
+# Background FCM data messages are handled natively, with no Android WebView running.
+service=ET.Element("service")
+service.set(namespace+"name",".NexusFirebaseMessagingService")
+service.set(namespace+"exported","false")
+filter_=ET.SubElement(service,"intent-filter")
+action=ET.SubElement(filter_,"action")
+action.set(namespace+"name","com.google.firebase.MESSAGING_EVENT")
+app.append(service)
 tree.write(manifest, encoding="utf-8", xml_declaration=True)
 
 javaDir=root / "android/app/src/main/java/com/nexusmaster/interfone/piloto"
@@ -43,7 +51,27 @@ gradle=root / "android/app/build.gradle"
 data=gradle.read_text()
 if "androidx.core:core:1.15.0" not in data:
     data=data.replace("dependencies {","dependencies {\n    implementation 'androidx.core:core:1.15.0'",1)
+if "com.google.firebase:firebase-bom" not in data:
+    data=data.replace("dependencies {","dependencies {\n    implementation platform('com.google.firebase:firebase-bom:35.2.0')\n    implementation 'com.google.firebase:firebase-messaging'",1)
+if "com.google.gms.google-services" not in data:
+    data+="\napply plugin: 'com.google.gms.google-services'\n"
 gradle.write_text(data)
+
+projectGradle=root / "android/build.gradle"
+data=projectGradle.read_text()
+if "com.google.gms:google-services" not in data:
+    data=data.replace("dependencies {","dependencies {\n        classpath 'com.google.gms:google-services:4.6.0'",1)
+projectGradle.write_text(data)
+
+# google-services.json contains Android client identifiers, NOT server credentials.
+config=root / "firebase/google-services.json"
+import json
+appInfo=json.loads(config.read_text())
+registered=[client.get("client_info",{}).get("android_client_info",{}).get("package_name")
+            for client in appInfo.get("client",[])]
+if appInfo.get("project_info",{}).get("project_id") != "controws" or "com.nexusmaster.interfone.piloto" not in registered:
+    raise SystemExit("Firebase configuration does not match the NexusMaster pilot Android app.")
+shutil.copy2(config,root / "android/app/google-services.json")
 
 from PIL import Image
 src = root.parent / "public/icons/nexusmaster-512.png"
