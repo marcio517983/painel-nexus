@@ -13,7 +13,19 @@ const active=async(env,id)=>{const c=await row(env,id);if(!c)return null;if(c.st
 const publicState=c=>({id:c.id,status:c.status,createdAt:c.created_at,expires:c.expires,answeredAt:c.answered_at||null,endedAt:c.ended_at||null,hasAnswer:!!c.answer_sdp});
 const validRole=u=>u&&['morador','sindico'].includes(u.role);
 const permitted=async(env,u,unitId)=> !!(await query(env,'SELECT 1 FROM intercom_unit_members WHERE client_id=? AND unit_id=? AND user_id=?',u.clientId,unitId,u.id).first())||u.role==='sindico';
-const rate=async(env,key,limit=5)=>{const stamp=now(),bucket=Math.floor(stamp/600);await query(env,'DELETE FROM intercom_rate_limits WHERE bucket<?',bucket-2).run();const r=await query(env,'INSERT INTO intercom_rate_limits(key,bucket,n) VALUES(?,?,1) ON CONFLICT(key,bucket) DO UPDATE SET n=n+1 RETURNING n',key,bucket).first();return Number(r.n)<=limit;};
+// A larger limit applies ONLY to the explicitly isolated, fictional Preview pilot.
+export const intercomPilotRatePolicy=env=>({
+ pilot:env.VERCEL_ENV==='preview'&&env.NEXUS_PREVIEW_SCHEMA_INIT==='1'&&
+  env.TURSO_DATABASE_URL==='libsql://nexusmaster-teste-marcio517983.aws-us-east-1.turso.io',
+ limit:env.VERCEL_ENV==='preview'&&env.NEXUS_PREVIEW_SCHEMA_INIT==='1'&&
+  env.TURSO_DATABASE_URL==='libsql://nexusmaster-teste-marcio517983.aws-us-east-1.turso.io'?20:5
+});
+const rate=async(env,key,limit=5,windowSeconds=600)=>{
+ const stamp=now(),bucket=Math.floor(stamp/windowSeconds);
+ await query(env,'DELETE FROM intercom_rate_limits WHERE bucket<?',bucket-2).run();
+ const r=await query(env,'INSERT INTO intercom_rate_limits(key,bucket,n) VALUES(?,?,1) ON CONFLICT(key,bucket) DO UPDATE SET n=n+1 RETURNING n',key,bucket).first();
+ return {allowed:Number(r.n)<=limit,retryAfterSeconds:windowSeconds-(stamp%windowSeconds)};
+};
 async function notifyResidents(env,clientId,unitId,reason,callId,expires){
  if(!pushConfigured(env))return;
  try{
@@ -46,11 +58,19 @@ export async function intercom(r,env){
    if(p[2]==='units'&&method==='GET')return json({name:JSON.parse(client.data).name,units:await units(env,cid)});
    if(p[2]==='calls'&&p.length===3&&method==='POST'){
     const ip=(r.headers.get('x-vercel-forwarded-for')||r.headers.get('x-forwarded-for')||'unknown').split(',')[0].trim().slice(0,100);
-    if(!await rate(env,digest(cid+':'+ip),5))return json({message:'Limite de chamadas atingido. Aguarde alguns minutos.'},429);
+    const policy=intercomPilotRatePolicy(env);
+    // The pilot uses its own rate bucket to avoid inheriting counters from the old five-call limit.
+    const budget=await rate(env,digest((policy.pilot?'intercom-pilot-v2:':'')+cid+':'+ip),policy.limit);
+    if(!budget.allowed)return json({message:'Limite temporário de chamadas atingido.',retryAfterSeconds:budget.retryAfterSeconds},429);
     const b=await payload(r),unitId=String(b.unitId||''),reason=String(b.reason||'');
     if(!/^[a-zA-Z0-9_-]{1,64}$/.test(unitId)||!['entrega','visita','servico','outro'].includes(reason))return json({message:'Escolha uma unidade e o motivo'},400);
     const u=await query(env,'SELECT id FROM intercom_units WHERE client_id=? AND id=? AND enabled=1',cid,unitId).first();
     if(!u)return json({message:'Unidade indisponível'},404);
+    // Keep a short anti-spam limit even in the higher-volume pilot, per unit and source IP.
+    if(policy.pilot){
+     const short=await rate(env,digest('intercom-pilot-minute:'+cid+':'+unitId+':'+ip),6,60);
+     if(!short.allowed)return json({message:'Muitas chamadas seguidas para esta residência.',retryAfterSeconds:short.retryAfterSeconds},429);
+    }
     const pending=await query(env,"SELECT id FROM intercom_calls WHERE client_id=? AND unit_id=? AND status='ringing' AND expires>?",cid,unitId,now()).first();
     if(pending)return json({message:'Esta unidade está recebendo outra chamada.'},409);
     const id=randomUUID(),secret=token(),created=now();
