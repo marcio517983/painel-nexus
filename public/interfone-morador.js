@@ -314,6 +314,35 @@ $('#addMember').onclick=async()=>{
  try{await post('members',{unitId:$('#units').value,userId:$('#userId').value});notice('Morador vinculado.')}
  catch(e){notice(e.message)}
 };
+let pilotNetworkActive=false;
+function renderPilotNetworkState(state){
+ const panel=$('#pilot-network-panel'),status=$('#pilot-network-status'),button=$('#pilot-network-toggle');
+ if(!state?.supported){panel.hidden=true;return;}
+ panel.hidden=false;pilotNetworkActive=state.allowed===true;
+ if(pilotNetworkActive){
+  const until=state.expiresAt?new Date(state.expiresAt*1000).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'15 minutos';
+  status.textContent='Teste liberado para esta rede até '+until+'. O notebook já pode chamar após atualizar a página.';
+  button.textContent='Encerrar teste nesta rede';
+ }else{
+  status.textContent='Teste temporário desativado. O visitante continuará precisando de GPS até que você autorize.';
+  button.textContent='Autorizar teste nesta rede por 15 min';
+ }
+ button.disabled=false;
+}
+async function checkPilotNetwork(){
+ try{renderPilotNetworkState(await req('pilot-network'));}
+ catch{$('#pilot-network-panel').hidden=true;}
+}
+$('#pilot-network-toggle').onclick=async()=>{
+ const button=$('#pilot-network-toggle');button.disabled=true;
+ try{
+  const state=await post('pilot-network',{enabled:!pilotNetworkActive});
+  renderPilotNetworkState(state);
+ }catch(e){
+  $('#pilot-network-status').textContent='Não foi possível autorizar o teste: '+(e.message||e);
+  button.disabled=false;
+ }
+};
 async function setup(){
  try{
   const response=await fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'});
@@ -326,6 +355,7 @@ async function setup(){
    await loadUnits();
   }
   await checkNotificationState();
+  await checkPilotNetwork();
   await refresh();
   setInterval(refresh,2300);
  }catch(e){notice('Não foi possível iniciar o painel: '+e.message)}
