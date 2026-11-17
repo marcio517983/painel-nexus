@@ -16,6 +16,13 @@
 <button type="button" id="enable-notifications">Ativar notificações</button>
 <p class="muted" id="notification-explainer">O Android pode solicitar permissão. A entrega depende das configurações do aparelho e da conexão; não equivale a uma ligação telefônica nativa.</p>
 </section>
+<section id="pilot-network-panel" hidden>
+<h2>Teste pela mesma rede</h2>
+<p class="muted">Exclusivo do condomínio piloto. Autorize por 15 minutos para o notebook chamar usando a mesma saída de internet, sem exigir o GPS da portaria. Isso não confirma proximidade física.</p>
+<p id="pilot-network-status" role="status">Verificando rede de teste...</p>
+<button id="pilot-network-toggle" type="button">Autorizar teste nesta rede por 15 min</button>
+<p class="muted">Depois de autorizar, atualize a página do visitante no notebook. Mantenha ambos no mesmo Wi-Fi e desative VPN/dados móveis durante o teste.</p>
+</section>
 <section id="active-audio" hidden>
 <h2>📞 Em comunicação</h2><p id="active-audio-label">Interfone conectado ao visitante</p>
 <button class="danger" id="hangup" type="button">Desligar</button>
