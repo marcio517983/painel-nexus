@@ -27,7 +27,7 @@ const rate=async(env,key,limit=5,windowSeconds=600)=>{
  const r=await query(env,'INSERT INTO intercom_rate_limits(key,bucket,n) VALUES(?,?,1) ON CONFLICT(key,bucket) DO UPDATE SET n=n+1 RETURNING n',key,bucket).first();
  return {allowed:Number(r.n)<=limit,retryAfterSeconds:windowSeconds-(stamp%windowSeconds)};
 };
-async function notifyResidents(env,clientId,unitId,reason,callId,expires){
+async function notifyResidents(env,clientId,unitId,reason,callId,expires,destinationLabel){
  if(!pushConfigured(env))return;
  try{
   const rows=(await query(env,`SELECT p.endpoint,p.p256dh,p.auth,p.endpoint_hash,p.user_id
@@ -35,7 +35,7 @@ async function notifyResidents(env,clientId,unitId,reason,callId,expires){
    JOIN intercom_unit_members m ON m.client_id=p.client_id AND m.user_id=p.user_id
    WHERE p.client_id=? AND m.unit_id=? LIMIT 24`,clientId,unitId).all()).results;
   if(!rows.length)return;
-  const payload={kind:'intercom',callId,expires,reason,unitId};
+  const payload={kind:'intercom',callId,expires,reason,unitId,destinationLabel:String(destinationLabel||'Residência').slice(0,80),entranceLabel:'Portaria'};
   await Promise.allSettled(rows.map(async row=>{
    const result=await sendWebPush(env,{endpoint:row.endpoint,keys:{p256dh:row.p256dh,auth:row.auth}},payload);
    if([404,410].includes(result.status)){
@@ -92,7 +92,7 @@ export async function intercom(r,env){
     const id=randomUUID(),secret=token(),created=now();
     await query(env,'INSERT INTO intercom_calls(id,client_id,unit_id,reason,token_hash,status,created_at,expires) VALUES(?,?,?,?,?,?,?,?)',id,cid,unitId,reason,digest(secret),'ringing',created,created+30).run();
     await Promise.allSettled([
-     notifyResidents(env,cid,unitId,reason,id,created+30),
+     notifyResidents(env,cid,unitId,reason,id,created+30,u.label),
      notifyFcmResidents(env,cid,unitId,reason,id,created+30,u.label)
     ]);
     return json({callId:id,callToken:secret,status:'ringing',expires:created+30},201);
