@@ -26,6 +26,8 @@
 </section>
 <section id="active-audio" hidden>
 <h2>📹 Videoporteiro</h2><p id="active-audio-label">Interfone conectado ao visitante</p><p id="video-status" role="status">Verificando se a portaria está enviando vídeo...</p><video id="remote-video" autoplay muted playsinline hidden aria-label="Vídeo ao vivo da portaria"></video>
+<p id="visitor-audio-status" role="status">Aguardando áudio do visitante...</p>
+<button id="enable-visitor-audio" type="button" hidden>🔊 Ouvir visitante</button>
 <button class="danger" id="hangup" type="button">Desligar</button>
 <audio id="remote-audio" autoplay playsinline></audio>
 </section><section><h2>Chamadas recebidas</h2><div id="calls">Consultando...</div></section><dialog id="incoming-dialog" class="intercom-modal" aria-labelledby="incoming-title">
