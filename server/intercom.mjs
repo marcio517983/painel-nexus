@@ -2,6 +2,7 @@ import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {identity, query, now} from './auth.mjs';
 import {endpointHash,validSubscription,pushConfigured,sendWebPush} from './intercom-push.mjs';
 import {fcmTokenHash,validFcmToken,fcmConfigured,sendFcmCall} from './intercom-fcm.mjs';
+import {validLatLon,validateIntercomPosition,INTERCOM_RADIUS_METERS,INTERCOM_MAX_ACCURACY_METERS,INTERCOM_MAX_POSITION_AGE_MS} from './intercom-geofence.mjs';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const digest=s=>createHash('sha256').update(String(s)).digest('hex');
@@ -71,8 +72,27 @@ export async function intercom(r,env){
    const cid=p[1];if(!safeId(cid))return json({message:'Condomínio inválido'},400);
    const client=await query(env,'SELECT data FROM clients WHERE id=?',cid).first();
    if(!client||JSON.parse(client.data).archived===true)return json({message:'Interfone indisponível'},404);
-   if(p[2]==='units'&&method==='GET')return json({name:JSON.parse(client.data).name,units:await units(env,cid)});
+   if(p[2]==='units'&&method==='GET'){
+    const entrance=await query(env,'SELECT enabled FROM intercom_entrances WHERE client_id=?',cid).first();
+    return json({name:JSON.parse(client.data).name,units:await units(env,cid),
+      radiusMeters:INTERCOM_RADIUS_METERS,locationRequired:true,locationReady:!!entrance&&Number(entrance.enabled)===1});
+   }
    if(p[2]==='calls'&&p.length===3&&method==='POST'){
+
+    const entrance=await query(env,'SELECT latitude,longitude,enabled FROM intercom_entrances WHERE client_id=?',cid).first();
+    const geo=validateIntercomPosition(entrance,b.location);
+    if(!geo.ok){
+     const errors={
+      not_configured:['A portaria ainda não cadastrou sua localização. Interfone indisponível.',409],
+      invalid:['Autorize a localização precisa para chamar o apartamento.',403],
+      stale:['Localização antiga. Atualize o GPS e tente novamente.',403],
+      imprecise:['O GPS está impreciso (acima de 20 metros). Vá para uma área aberta e tente novamente.',422],
+      outside:['Você precisa estar a até 20 metros da portaria para utilizar o interfone.',403]
+     };
+     const [message,status]=errors[geo.reason]||['Localização não autorizada.',403];
+     return json({message},status);
+    }
+    // Location is evaluated for this call only: do not store visitor coordinates.
     const ip=(r.headers.get('x-vercel-forwarded-for')||r.headers.get('x-forwarded-for')||'unknown').split(',')[0].trim().slice(0,100);
     const policy=intercomPilotRatePolicy(env);
     // The pilot uses its own rate bucket to avoid inheriting counters from the old five-call limit.
@@ -118,7 +138,31 @@ export async function intercom(r,env){
    }
    return json({message:'Rota inexistente'},404);
   }
-  const u=await identity(r,env);if(!validRole(u))return json({message:'Entre como morador ou síndico'},401);
+  const u=await identity(r,env);
+  if(p[0]==='entrance'&&['GET','POST'].includes(method)){
+   if(!u||!['master','sindico'].includes(u.role))return json({message:'Apenas a administração pode configurar a portaria.'},403);
+   const cid=u.role==='master'?new URL(r.url).searchParams.get('central'):u.clientId;
+   if(!safeId(cid))return json({message:'Condomínio inválido.'},400);
+   if(!await query(env,'SELECT id FROM clients WHERE id=?',cid).first())return json({message:'Condomínio inexistente.'},404);
+   if(method==='GET'){
+    const entrance=await query(env,'SELECT latitude,longitude,enabled,updated_at FROM intercom_entrances WHERE client_id=?',cid).first();
+    return json({configured:!!entrance&&Number(entrance.enabled)===1,entrance:entrance||null,radiusMeters:INTERCOM_RADIUS_METERS,accuracyRequiredMeters:INTERCOM_MAX_ACCURACY_METERS});
+   }
+   const b=await payload(r),latitude=b?.latitude,longitude=b?.longitude;
+   if(!validLatLon(latitude,longitude)||
+      typeof b.accuracy!=='number'||!Number.isFinite(b.accuracy)||b.accuracy<=0||
+      b.accuracy>INTERCOM_MAX_ACCURACY_METERS||
+      typeof b.timestamp!=='number'||!Number.isFinite(b.timestamp)||
+      Math.abs(Date.now()-b.timestamp)>INTERCOM_MAX_POSITION_AGE_MS){
+     return json({message:'Posição de configuração inválida, antiga ou imprecisa. Faça a captura com GPS preciso na portaria.'},422);
+   }
+   await query(env,`INSERT INTO intercom_entrances(client_id,latitude,longitude,enabled,updated_at,updated_by)
+    VALUES(?,?,?,1,?,?) ON CONFLICT(client_id) DO UPDATE SET latitude=excluded.latitude,
+    longitude=excluded.longitude,enabled=1,updated_at=excluded.updated_at,updated_by=excluded.updated_by`,
+    cid,latitude,longitude,now(),u.role==='master'?'master':u.id).run();
+   return json({configured:true,radiusMeters:INTERCOM_RADIUS_METERS});
+  }
+  if(!validRole(u))return json({message:'Entre como morador ou síndico'},401);
   if(p[0]==='fcm'){
    if(p[1]==='status'&&method==='GET'){
     const devices=(await query(env,'SELECT COUNT(*) AS n FROM intercom_fcm_tokens WHERE client_id=? AND user_id=?',u.clientId,u.id).first())?.n||0;
