@@ -78,7 +78,8 @@ export async function intercom(r,env){
       radiusMeters:INTERCOM_RADIUS_METERS,locationRequired:true,locationReady:!!entrance&&Number(entrance.enabled)===1});
    }
    if(p[2]==='calls'&&p.length===3&&method==='POST'){
-
+    const b=await payload(r),unitId=String(b.unitId||''),reason=String(b.reason||'');
+    if(!/^[a-zA-Z0-9_-]{1,64}$/.test(unitId)||!['entrega','visita','servico','outro'].includes(reason))return json({message:'Escolha uma unidade e o motivo'},400);
     const entrance=await query(env,'SELECT latitude,longitude,enabled FROM intercom_entrances WHERE client_id=?',cid).first();
     const geo=validateIntercomPosition(entrance,b.location);
     if(!geo.ok){
@@ -98,8 +99,6 @@ export async function intercom(r,env){
     // The pilot uses its own rate bucket to avoid inheriting counters from the old five-call limit.
     const budget=await rate(env,digest((policy.pilot?'intercom-pilot-v2:':'')+cid+':'+ip),policy.limit);
     if(!budget.allowed)return json({message:'Limite temporário de chamadas atingido.',retryAfterSeconds:budget.retryAfterSeconds},429);
-    const b=await payload(r),unitId=String(b.unitId||''),reason=String(b.reason||'');
-    if(!/^[a-zA-Z0-9_-]{1,64}$/.test(unitId)||!['entrega','visita','servico','outro'].includes(reason))return json({message:'Escolha uma unidade e o motivo'},400);
     const u=await query(env,'SELECT id,label FROM intercom_units WHERE client_id=? AND id=? AND enabled=1',cid,unitId).first();
     if(!u)return json({message:'Unidade indisponível'},404);
     // Keep a short anti-spam limit even in the higher-volume pilot, per unit and source IP.
