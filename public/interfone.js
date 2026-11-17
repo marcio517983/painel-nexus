@@ -1,11 +1,62 @@
 const $=s=>document.querySelector(s),cid=new URLSearchParams(location.search).get('central');
 let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false,networkTestAllowed=false;
+let cameraStream=null,remoteAudio=null;
 const reasons={entrega:'Entrega',visita:'Visita',servico:'Serviço',outro:'Outro'};
 const setNotice=s=>$('#notice').textContent=s;
+/** The laptop webcam is a temporary portaria camera for this Preview pilot.
+ * Never start capture silently; the visitor must click the explicit button.
+ * Tracks are held locally until the resident answers the call.
+ */
+const cameraActive=()=>cameraStream?.getVideoTracks().some(t=>t.readyState==='live')===true;
+function stopCamera(){
+ cameraStream?.getTracks().forEach(track=>track.stop());
+ cameraStream=null;
+ for(const id of ['#camera-preview','#calling-video']){
+  const video=$(id);
+  if(video){video.pause();video.srcObject=null;video.hidden=true;}
+ }
+ $('#calling-video-status').hidden=true;
+ $('#camera-start').hidden=false;
+ $('#camera-start').disabled=false;
+ $('#camera-stop').hidden=true;
+ $('#camera-status').textContent='Câmera desligada. A chamada continua disponível somente com áudio.';
+}
+$('#camera-start').onclick=async()=>{
+ const button=$('#camera-start');
+ button.disabled=true;
+ $('#camera-status').textContent='Solicitando acesso à câmera do notebook...';
+ try{
+  if(!navigator.mediaDevices?.getUserMedia)throw Error('Este navegador não tem acesso à webcam.');
+  const captured=await navigator.mediaDevices.getUserMedia({
+   video:{width:{ideal:640},height:{ideal:360},frameRate:{ideal:15,max:20}},
+   audio:false
+  });
+  if(call){captured.getTracks().forEach(t=>t.stop());throw Error('Ative a câmera antes de iniciar a chamada.');}
+  cameraStream=captured;
+  const preview=$('#camera-preview');
+  preview.srcObject=captured;preview.hidden=false;
+  await preview.play().catch(()=>{});
+  cameraStream.getVideoTracks().forEach(track=>track.addEventListener('ended',()=>{
+   if(!cameraActive())stopCamera();
+  }));
+  button.hidden=true;$('#camera-stop').hidden=false;
+  $('#camera-status').textContent='Câmera pronta. O vídeo será enviado quando o morador atender.';
+ }catch(e){
+  $('#camera-status').textContent='Câmera indisponível: '+(e.message||e)+'. Você ainda pode fazer a chamada só com áudio.';
+  button.disabled=false;
+ }
+};
+$('#camera-stop').onclick=stopCamera;
+window.addEventListener('pagehide',()=>{
+ stopCamera();
+ stream?.getTracks().forEach(track=>track.stop());
+ peer?.close();
+});
+
 async function api(path,options={}){const r=await fetch('/api/intercom/public/'+encodeURIComponent(cid)+'/'+path,{cache:'no-store',...options});const b=await r.json();if(!r.ok){const wait=Number(b.retryAfterSeconds);const explanation=Number.isFinite(wait)&&wait>0?' Tente novamente em cerca de '+Math.ceil(wait/60)+' minuto(s).':'';throw Error((b.message||'Falha de comunicação')+explanation);}return b;}
 function tone(frequency,duration){if(!ctx)return;const oscillator=ctx.createOscillator(),g=ctx.createGain();oscillator.type='sine';oscillator.frequency.value=frequency;g.gain.value=0.055;oscillator.connect(g).connect(ctx.destination);oscillator.start();oscillator.stop(ctx.currentTime+duration); }
 function ring(){if(!ctx)return;const elapsed=(Date.now()-started)/1000;if(elapsed%6<1.8){tone(425,.32);setTimeout(()=>{if(call)tone(425,.32)},520);}}
-function done(status){peer?.close();peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;audioStarted=false;clearInterval(timer);timer=null;call=null;secret='';const map={answered:['Chamada atendida','Conectando áudio com o morador...'],declined:['Ocupado','O morador não pôde atender.'],missed:['Não atendida','O tempo de chamada terminou.'],ended:['Chamada encerrada','A chamada foi encerrada.']};const [title,message]=map[status]||['Chamada encerrada','Tente novamente mais tarde.'];$('#title').textContent=title;$('#sub').textContent=message;$('#clock').textContent='';$('#symbol').textContent='✕';$('#cancel').textContent='Nova chamada';$('#cancel').onclick=()=>location.reload();if(['missed','declined'].includes(status)){tone(480,.25);setTimeout(()=>tone(480,.25),480);setTimeout(()=>tone(480,.25),960);}}
+function done(status){peer?.close();peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;remoteAudio?.remove();remoteAudio=null;stopCamera();audioStarted=false;clearInterval(timer);timer=null;call=null;secret='';const map={answered:['Chamada atendida','Conectando áudio com o morador...'],declined:['Ocupado','O morador não pôde atender.'],missed:['Não atendida','O tempo de chamada terminou.'],ended:['Chamada encerrada','A chamada foi encerrada.']};const [title,message]=map[status]||['Chamada encerrada','Tente novamente mais tarde.'];$('#title').textContent=title;$('#sub').textContent=message;$('#clock').textContent='';$('#symbol').textContent='✕';$('#cancel').textContent='Nova chamada';$('#cancel').onclick=()=>location.reload();if(['missed','declined'].includes(status)){tone(480,.25);setTimeout(()=>tone(480,.25),480);setTimeout(()=>tone(480,.25),960);}}
 async function poll(){if(!call)return;try{const s=await api('calls/'+call,{headers:{Authorization:'Bearer '+secret}});if(s.status==='answered'){if(!audioStarted){audioStarted=true;$('#title').textContent='Chamada atendida';$('#sub').textContent='Conectando áudio com o morador...';startAudio().catch(e=>{setNotice('Microfone não autorizado: '+e.message);offerMicRetry();});}return;}if(s.status!=='ringing'){done(s.status);return;}const seconds=Math.max(0,s.expires-Math.floor(Date.now()/1000));$('#clock').textContent='00:'+String(seconds).padStart(2,'0');if(!seconds){done('missed');return;}ring();}catch(e){setNotice('Conexão instável. Verificando chamada...');}}
 function freshVisitorLocation(){
  return new Promise((resolve,reject)=>{
@@ -32,6 +83,9 @@ if(!cid){
  locationReady=d.locationReady===true;
  networkTestAllowed=d.pilotNetworkTestAllowed===true;
  $('#call').disabled=!d.units.length||!(locationReady||networkTestAllowed);
+ if(d.pilotNetworkTestSupported===true){
+  $('#camera-test').hidden=false;
+ }
  if(networkTestAllowed){
   $('#location-explainer').textContent='MODO DE TESTE • Seu notebook está usando a mesma saída de internet autorizada pelo morador. O GPS de 20 m está dispensado somente neste piloto e por tempo limitado.';
   $('#call').textContent='☎ Chamar (teste na mesma rede)';
@@ -60,6 +114,11 @@ $('#call').onclick=async()=>{
   const s=await api('calls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   setNotice('');call=s.callId;secret=s.callToken;started=Date.now();
   $('#start').classList.add('hidden');$('#calling').classList.remove('hidden');
+  if(cameraActive()){
+   $('#calling-video').srcObject=cameraStream;$('#calling-video').hidden=false;
+   $('#calling-video-status').hidden=false;
+   $('#calling-video').play().catch(()=>{});
+  }
   $('#cancel').onclick=async()=>{
    try{await api('calls/'+call+'/cancel',{method:'POST',headers:{Authorization:'Bearer '+secret}});}catch{}
    done('ended');
@@ -77,12 +136,21 @@ async function startAudio(){
  if(!call)return;
  const id=call,authorization={Authorization:'Bearer '+secret};
  stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
- if(call!==id){stream.getTracks().forEach(t=>t.stop());return;}
+ if(call!==id){stream.getTracks().forEach(t=>t.stop());stream=null;return;}
  peer=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
- stream.getTracks().forEach(track=>peer.addTrack(track,stream));
- const remote=new Audio();remote.autoplay=true;remote.setAttribute('playsinline','');remote.style.display='none';document.body.append(remote);
- peer.ontrack=e=>remote.srcObject=e.streams[0];
- peer.onconnectionstatechange=()=>{if(peer?.connectionState==='connected'){setNotice('Áudio conectado.');$('#title').textContent='Em comunicação';$('#sub').textContent='Você está falando com o morador.';}};
+ // One local stream with audio + optional webcam video makes the tracks
+ // available together at the remote Android videoporteiro.
+ const videoTracks=cameraActive()?cameraStream.getVideoTracks():[];
+ const sharedMedia=new MediaStream([...stream.getAudioTracks(),...videoTracks]);
+ sharedMedia.getTracks().forEach(track=>peer.addTrack(track,sharedMedia));
+ remoteAudio=new Audio();remoteAudio.autoplay=true;remoteAudio.setAttribute('playsinline','');
+ remoteAudio.style.display='none';document.body.append(remoteAudio);
+ peer.ontrack=e=>{
+  if(e.track.kind!=='audio')return;
+  remoteAudio.srcObject=e.streams[0]||new MediaStream([e.track]);
+  remoteAudio.play().catch(()=>setNotice('Toque na tela para habilitar o áudio do morador.'));
+ };
+ peer.onconnectionstatechange=()=>{if(peer?.connectionState==='connected'){setNotice(videoTracks.length?'Áudio e câmera conectados.':'Áudio conectado (sem câmera).');$('#title').textContent='Em comunicação';$('#sub').textContent='Você está falando com o morador.';}};
  const offer=await peer.createOffer();await peer.setLocalDescription(offer);await completeIce(peer);
  await api('calls/'+id+'/offer',{method:'POST',headers:{...authorization,'Content-Type':'application/json'},body:JSON.stringify(peer.localDescription)});
  for(let i=0;i<35&&call===id;i++){const d=await api('calls/'+id+'/answer',{headers:authorization});if(d.sdp){await peer.setRemoteDescription(d.sdp);return;}await sleep(1000);}
