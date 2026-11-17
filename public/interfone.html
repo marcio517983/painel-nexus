@@ -6,5 +6,10 @@
 <button id="camera-stop" type="button" class="secondary" hidden>Desligar câmera</button>
 
 <p id="camera-status" class="camera-status" role="status">A câmera está desligada. A chamada continua funcionando só com áudio.</p></section><p id="location-explainer" class="details" role="note">Para sua segurança, o interfone exige localização precisa e permite chamadas somente a até 20 metros da portaria. Sua posição é verificada no momento da chamada e não é salva no histórico.</p><button id="call" disabled>☎ Verificar localização e chamar</button></section>
-<section id="calling" class="hidden"><div class="disc" id="symbol">☎</div><h1 id="title">Chamando...</h1><p id="sub">Aguarde enquanto chamamos o morador.</p><div id="clock" class="status">00:30</div><p class="details" id="calling-video-status" hidden>📷 Câmera transmitindo apenas ao morador, sem prévia para o visitante.</p><button class="secondary" id="cancel">Encerrar</button></section>
+<section class="camera-test" id="microphone-test"><h2>🎙️ Microfone da portaria</h2>
+<p class="details">No notebook, selecione a entrada de voz e teste antes de chamar. Se o sistema não detectar sua voz, o morador também não conseguirá ouvir.</p>
+<label for="microphone-device">Fonte de áudio</label><select id="microphone-device"><option value="">Microfone padrão do dispositivo</option></select>
+<button type="button" class="secondary" id="microphone-test-button">Testar microfone</button>
+<p class="camera-status" id="microphone-test-status" role="status">Nenhum teste realizado.</p></section>
+<section id="calling" class="hidden"><div class="disc" id="symbol">☎</div><h1 id="title">Chamando...</h1><p id="sub">Aguarde enquanto chamamos o morador.</p><div id="clock" class="status">00:30</div><p id="microphone-live-status" class="details" role="status">O microfone será ativado quando o morador atender.</p><p class="details" id="calling-video-status" hidden>📷 Câmera transmitindo apenas ao morador, sem prévia para o visitante.</p><button class="secondary" id="cancel">Encerrar</button></section>
 <p id="notice" role="status"></p><p class="foot">NexusMaster • Não fornece chamadas de emergência. O áudio e o vídeo exigem permissões e conexão. A câmera do notebook é usada nesta chamada de teste e a imagem fica visível apenas ao morador.</p></main><script type="module" src="/interfone.js"></script></body></html>
