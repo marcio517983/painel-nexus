@@ -208,7 +208,7 @@ async function completeIce(pc){
  await Promise.race([new Promise(resolve=>{
   function change(){if(pc.iceGatheringState==='complete'){pc.removeEventListener('icegatheringstatechange',change);resolve()}}
   pc.addEventListener('icegatheringstatechange',change);
- }),sleep(9000)]);
+ }),sleep(4500)]);
 }
 async function connectAudio(id){
  if(!stream||activeCall!==id)return;
@@ -218,6 +218,8 @@ async function connectAudio(id){
   const media=event.streams[0]||new MediaStream([event.track]);
   if(event.track.kind==='video'){
    const video=$('#remote-video');
+   video.muted=true; // Caller audio plays only in #remote-audio.
+   video.playsInline=true;
    video.srcObject=media;
    video.hidden=false;
    $('#video-status').textContent='📹 Vídeo ao vivo da portaria.';
@@ -242,10 +244,12 @@ async function connectAudio(id){
   if(['failed','disconnected'].includes(peer?.connectionState||''))notice('A comunicação ficou instável. Confira sua conexão.');
  };
  let offer=null;
- for(let i=0;i<36&&activeCall===id;i++){
+ // Fast negotiation while the call is active. A short poll interval improves
+ // pickup speed without changing the normal idle call-check cadence.
+ for(let i=0;i<55&&activeCall===id;i++){
   const d=await req('calls/'+id+'/signal');
   if(d.offer){offer=d.offer;break}
-  await sleep(1000);
+  await sleep(650);
  }
  if(!offer||activeCall!==id)throw Error('Oferta de áudio indisponível');
  await peer.setRemoteDescription(offer);
