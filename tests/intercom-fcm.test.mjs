@@ -34,6 +34,9 @@ test('FCM sends high-priority, time-limited data message to the authorized Andro
   assert.equal(message.token,token);
   assert.equal(message.data.kind,'intercom');
   assert.equal(message.data.callId,id);
+  assert.equal(message.data.label,'Portaria');
+  assert.equal(message.data.destinationLabel,'Apartamento 102');
+  assert.equal(message.data.reason,'Entrega • Destino: Apartamento 102');
   assert.equal(message.data.firebaseProject,'controws');
   assert.equal(message.android.priority,'HIGH');
   assert.equal(message.android.ttl,'30s');
