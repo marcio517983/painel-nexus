@@ -77,7 +77,7 @@ async function showNativeIncoming(c){
  if(!native||lastNativeCallId===c.id)return;
  lastNativeCallId=c.id;
  try{
-  await native.showIncoming({callId:c.id,label:c.label,reason:reasons[c.reason]||'Visitante na portaria',expires:c.expires});
+  await native.showIncoming({callId:c.id,label:'Portaria',destinationLabel:c.label,reason:(reasons[c.reason]||'Visita')+' • Destino: '+c.label,expires:c.expires});
  }catch(e){lastNativeCallId=null;notice('Alerta Android indisponível: '+(e.message||e));}
 }
 function closeNativeIncoming(id){
@@ -122,14 +122,14 @@ function renderIncoming(c){
  if(c.expires<=now)return clearPopup();
  const isNew=currentRing!==c.id;
  currentRing=c.id;
- $('#incoming-unit').textContent=c.label;
+ $('#incoming-unit').textContent='Destino: '+c.label;
  $('#incoming-reason').textContent='Motivo: '+(reasons[c.reason]||'Chamada na entrada');
  $('#incoming-countdown').textContent='Tempo restante: '+Math.max(0,c.expires-now)+' segundos';
  if(isNew){
   if(!$('#incoming-dialog').open)$('#incoming-dialog').showModal();
   startRing();
   if(navigator.vibrate)navigator.vibrate([250,130,250]);
-  document.title='📞 Interfone chamando — NexusMaster';
+  document.title='📞 Chamada da Portaria — NexusMaster';
   if(nexusNative())showNativeIncoming(c);
  }
 }
@@ -143,7 +143,7 @@ async function refresh(){
   if(!calls.length){$('#calls').textContent='Nenhuma chamada pendente.';if(currentRing&&!processing)clearPopup();}
   else for(const c of calls){
    const box=document.createElement('div');box.className='entry';
-   const h=document.createElement('strong');h.textContent=c.label;box.append(h);
+   const h=document.createElement('strong');h.textContent='Portaria → '+c.label;box.append(h);
    const p=document.createElement('p');p.textContent='Motivo: '+(reasons[c.reason]||c.reason)+' • '+Math.max(0,c.expires-Math.floor(Date.now()/1000))+' s restantes';box.append(p);
    for(const [title,kind,css] of [['Atender','answer',''],['Recusar','decline','danger']]){
     const b=document.createElement('button');b.textContent=title;b.className=css;b.type='button';
