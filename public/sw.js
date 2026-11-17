@@ -22,9 +22,10 @@ self.addEventListener('push',event=>{
  if(message.kind!=='intercom'||!/^[a-f0-9-]{36}$/i.test(message.callId||''))return;
  if(Number(message.expires||0)<=Date.now()/1000)return; // Do not alert for expired 30s calls.
  const reasons={entrega:'Entrega ou encomenda',visita:'Visita',servico:'Prestação de serviço',outro:'Outro assunto'};
- const body='Motivo: '+(reasons[message.reason]||'Chamada na portaria')+'. Toque para abrir o interfone.';
+ const destination=typeof message.destinationLabel==='string'&&message.destinationLabel.length<=80?message.destinationLabel:'Sua residência';
+ const body='Destino: '+destination+' • Motivo: '+(reasons[message.reason]||'Visita')+'. Toque para atender.';
  const path='/interfone-morador.html?call='+encodeURIComponent(message.callId);
- event.waitUntil(self.registration.showNotification('NexusMaster • Interfone chamando',{
+ event.waitUntil(self.registration.showNotification('NexusMaster • Chamada da Portaria',{
   body,tag:'nexus-intercom-'+message.callId,
   icon:'/icons/nexusmaster-192.png',badge:'/icons/nexusmaster-192.png',
   vibrate:[400,160,400],requireInteraction:false,
