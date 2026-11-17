@@ -115,7 +115,7 @@ test('videoporteiro markup includes distinct camera capture and resident playbac
  const resident=readFileSync(new URL('../public/interfone-morador.html',import.meta.url),'utf8');
  for(const id of ['camera-device','camera-start','camera-stop','camera-status','calling-video-status'])assert.match(visitor,new RegExp('id="'+id+'"'));
  // Visitor cannot see the captured camera even during an active call.
- assert.doesNotMatch(visitor,/<video\\b/i);
+ assert.doesNotMatch(visitor,/<video\b/i);
  assert.doesNotMatch(visitor,/id="camera-preview"|id="calling-video"/);
  for(const id of ['remote-video','video-status','remote-audio'])assert.match(resident,new RegExp('id="'+id+'"'));
 });
