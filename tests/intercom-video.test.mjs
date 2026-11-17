@@ -101,10 +101,14 @@ test('resident displays remote video while audio still uses its own element',asy
  const videoTrack=remoteStream.getVideoTracks()[0];
  peer.ontrack({track:videoTrack,streams:[remoteStream]});
  assert.equal(h.element('#remote-video').hidden,false);
- assert.equal(h.element('#remote-video').srcObject,remoteStream);
+ // Video must not be attached to the remote audio track on Android WebView.
+ assert.deepEqual(h.element('#remote-video').srcObject.getVideoTracks(),[videoTrack]);
+ assert.equal(h.element('#remote-video').srcObject.getAudioTracks().length,0);
  assert.equal(h.element('#remote-video').played,true);
- peer.ontrack({track:remoteStream.getAudioTracks()[0],streams:[remoteStream]});
- assert.equal(h.element('#remote-audio').srcObject,remoteStream);
+ const audioTrack=remoteStream.getAudioTracks()[0];
+ peer.ontrack({track:audioTrack,streams:[remoteStream]});
+ assert.deepEqual(h.element('#remote-audio').srcObject.getAudioTracks(),[audioTrack]);
+ assert.equal(h.element('#remote-audio').srcObject.getVideoTracks().length,0);
  assert.equal(h.element('#remote-audio').played,true);
  videoTrack.handlers.ended();
  assert.equal(h.element('#remote-video').hidden,true);
