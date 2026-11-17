@@ -49,7 +49,7 @@ function browserHarness(filename){
   document:{querySelector:element,body:{append(){}},addEventListener(){}},
   navigator:{mediaDevices:{async getUserMedia(options){captures.push(options);return options.video?webcam:mic;}}},
   location:{search:'',origin:'https://nexus.example'},URLSearchParams,
-  MediaStream,RTCPeerConnection:Peer,Track,Audio:class{play(){return Promise.resolve();}setAttribute(){}remove(){}},
+  MediaStream,RTCPeerConnection:Peer,Track,Audio:class{constructor(){this.style={};}play(){return Promise.resolve();}setAttribute(){}remove(){}},
   fetch:async(url,options)=>{
    const data=String(url).includes('/api/auth/me')?{user:null}:
     String(url).includes('/signal')&&!options?.method?{offer:remoteVideoOffer}:
