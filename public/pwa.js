@@ -1,6 +1,14 @@
 /* Install entry points on supported browsers. Installation is optional. */
 let deferredPrompt;
-const standalone=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+// Capacitor is already an installed Android/iOS application. Never offer the
+// separate browser PWA installation inside its native WebView.
+const isNativeApp=()=>{
+ const c=window.Capacitor;
+ return c?.isNativePlatform?.()===true||
+  ['android','ios'].includes(c?.getPlatform?.())||
+  Boolean(c?.Plugins?.NexusCall);
+};
+const standalone=()=>isNativeApp()||matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 const display=()=>{
  const target=document.querySelector('[data-pwa-install]');
  if(!target)return;
@@ -8,8 +16,13 @@ const display=()=>{
  if(target.hidden)return;
  target.textContent=deferredPrompt?'Instalar NexusMaster':'Adicionar NexusMaster à tela inicial';
 };
-if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{}));}
-addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredPrompt=event;display();});
+// The Capacitor APK uses Firebase Cloud Messaging, not browser Web Push.
+if('serviceWorker' in navigator){
+ addEventListener('load',()=>{
+  if(!isNativeApp())navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{});
+ });
+}
+addEventListener('beforeinstallprompt',event=>{event.preventDefault();if(isNativeApp())return;deferredPrompt=event;display();});
 addEventListener('appinstalled',()=>{deferredPrompt=null;display();});
 addEventListener('DOMContentLoaded',()=>{
  const btn=document.querySelector('[data-pwa-install]');if(!btn)return;
