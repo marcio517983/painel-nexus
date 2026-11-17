@@ -2,6 +2,7 @@ const $=s=>document.querySelector(s);
 const reasons={entrega:'Entrega ou encomenda',visita:'Visita pessoal',servico:'Prestação de serviço',outro:'Outro assunto'};
 const notice=s=>$('#notice').textContent=s;
 let profile,activeCall=null,peer=null,stream=null,currentRing=null,ringInterval=null,alertCtx=null,pollBusy=false,processing=false;
+let inboundAudioTimer=null,lastInboundAudioBytes=0;
 const nexusNative=()=>window.Capacitor?.Plugins?.NexusCall||null;
 let lastNativeCallId=null;
 /** Android APK only: default the conversation to the built-in loudspeaker. */
@@ -12,6 +13,53 @@ async function preferNativeSpeaker(){
   const result=await native.preferSpeaker();
   if(result?.selected===false)notice('Viva-voz indisponível neste aparelho. Verifique a saída de áudio.');
  }catch{ /* Android can override routing; let WebRTC continue normally. */ }
+}
+function resetInboundAudioDiagnostics(){
+ if(inboundAudioTimer){clearInterval(inboundAudioTimer);inboundAudioTimer=null;}
+ lastInboundAudioBytes=0;
+ const status=$('#visitor-audio-status'),unlock=$('#enable-visitor-audio');
+ if(status)status.textContent='Aguardando áudio do visitante...';
+ if(unlock)unlock.hidden=true;
+}
+function showAudioUnlock(message){
+ $('#visitor-audio-status').textContent=message;
+ $('#enable-visitor-audio').hidden=false;
+}
+async function tryPlayVisitorAudio(){
+ const audio=$('#remote-audio');
+ if(!audio.srcObject)return showAudioUnlock('Aguardando a voz do visitante...');
+ audio.autoplay=true;audio.muted=false;audio.volume=1;
+ try{
+  await audio.play();
+  $('#enable-visitor-audio').hidden=true;
+  $('#visitor-audio-status').textContent='Áudio do visitante habilitado.';
+ }catch{
+  showAudioUnlock('O Android bloqueou a reprodução automática. Toque em Ouvir visitante.');
+ }
+}
+$('#enable-visitor-audio').onclick=()=>tryPlayVisitorAudio();
+function startInboundAudioDiagnostics(){
+ if(inboundAudioTimer)return;
+ inboundAudioTimer=setInterval(async()=>{
+  if(!peer||!activeCall)return;
+  try{
+   const data=await peer.getStats();
+   let bytes=0,found=false;
+   data.forEach(stat=>{
+    if(stat.type==='inbound-rtp'&&(stat.kind==='audio'||stat.mediaType==='audio')){
+     bytes+=Number(stat.bytesReceived||0);found=true;
+    }
+   });
+   const status=$('#visitor-audio-status');
+   if(!found)return;
+   if(bytes<=lastInboundAudioBytes){
+    status.textContent='Sem pacotes de voz do visitante. Confira o microfone do notebook.';
+   }else if($('#enable-visitor-audio').hidden){
+    status.textContent='Recebendo áudio do visitante. Se não ouvir, verifique o volume ou saída de áudio do celular.';
+   }
+   lastInboundAudioBytes=bytes;
+  }catch{ /* Network stats are diagnostic only, never interrupt a call. */ }
+ },2000);
 }
 function releaseNativeSpeaker(){
  const native=nexusNative();
@@ -171,6 +219,7 @@ async function act(c,kind){
    stream=localStream;localStream=null;activeCall=c.id;
    clearPopup();dismissPush(c.id);
    $('#active-audio').hidden=false;$('#active-audio-label').textContent='Conectando a '+c.label+'...';
+   resetInboundAudioDiagnostics();
    $('#video-status').textContent='Verificando transmissão de vídeo da portaria...';
    $('#remote-video').hidden=true;
    notice('Chamada atendida. Preparando áudio e vídeo...');
@@ -215,7 +264,10 @@ async function connectAudio(id){
  peer=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
  for(const track of stream.getTracks())peer.addTrack(track,stream);
  peer.ontrack=event=>{
-  const media=event.streams[0]||new MediaStream([event.track]);
+  // Android WebView: keep video and voice in distinct playback streams.
+  // A combined audio+video MediaStream bound to both elements may be routed
+  // inconsistently when video is muted.
+  const media=new MediaStream([event.track]);
   if(event.track.kind==='video'){
    const video=$('#remote-video');
    video.muted=true; // Caller audio plays only in #remote-audio.
@@ -233,10 +285,12 @@ async function connectAudio(id){
    return;
   }
   if(event.track.kind==='audio'){
-   // Only the audio element plays sound; the video is always muted to avoid echo.
-   preferNativeSpeaker();
-   const audio=$('#remote-audio');audio.srcObject=media;
-   audio.play().catch(()=>notice('Toque na tela para liberar o áudio da ligação.'));
+   // Video is muted, but the independent audio element must not be.
+   const audio=$('#remote-audio');
+   audio.muted=false;audio.volume=1;audio.srcObject=media;
+   tryPlayVisitorAudio();
+   startInboundAudioDiagnostics();
+   event.track.addEventListener('ended',()=>showAudioUnlock('O microfone do visitante parou de transmitir. Peça para ele verificar o notebook.'),{once:true});
   }
  };
  peer.onconnectionstatechange=()=>{
@@ -260,11 +314,12 @@ async function connectAudio(id){
  await post('calls/'+id+'/signal',peer.localDescription);
 }
 async function hangup(){
+ resetInboundAudioDiagnostics();
  const id=activeCall;
  activeCall=null;peer?.close();peer=null;
  stream?.getTracks().forEach(t=>t.stop());stream=null;
  releaseNativeSpeaker();
- $('#remote-audio').srcObject=null;
+ $('#remote-audio').pause();$('#remote-audio').srcObject=null;
  const remoteVideo=$('#remote-video');remoteVideo.pause();remoteVideo.srcObject=null;remoteVideo.hidden=true;
  $('#video-status').textContent='Vídeo encerrado.';
  $('#active-audio').hidden=true;
