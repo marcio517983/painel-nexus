@@ -1,5 +1,6 @@
 import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {identity, query, now} from './auth.mjs';
+import {nexusOriginAllowed} from './preview-origin.mjs';
 import {endpointHash,validSubscription,pushConfigured,sendWebPush} from './intercom-push.mjs';
 import {fcmTokenHash,validFcmToken,fcmConfigured,sendFcmCall} from './intercom-fcm.mjs';
 import {validLatLon,validateIntercomPosition,INTERCOM_RADIUS_METERS,INTERCOM_MAX_ACCURACY_METERS,INTERCOM_MAX_POSITION_AGE_MS} from './intercom-geofence.mjs';
@@ -8,7 +9,7 @@ import {pilotNetworkStatus,authorizePilotNetwork,revokePilotNetwork,isPilotNetwo
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const digest=s=>createHash('sha256').update(String(s)).digest('hex');
 const token=()=>randomBytes(32).toString('hex');
-const originOk=(r,env)=>r.headers.get('origin')===env.NEXUS_ORIGIN;
+const originOk=(r,env)=>nexusOriginAllowed(r,env);
 const safeId=s=>/^[a-zA-Z0-9_-]{1,64}$/.test(s||'');
 const units=async(env,cid)=> (await query(env,'SELECT id,label FROM intercom_units WHERE client_id=? AND enabled=1 ORDER BY label LIMIT 100',cid).all()).results;
 const row=async(env,id)=>query(env,'SELECT * FROM intercom_calls WHERE id=?',id).first();
