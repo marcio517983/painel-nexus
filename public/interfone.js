@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s),cid=new URLSearchParams(location.search).get('central');
-let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false;
+let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false,networkTestAllowed=false;
 const reasons={entrega:'Entrega',visita:'Visita',servico:'Serviço',outro:'Outro'};
 const setNotice=s=>$('#notice').textContent=s;
 async function api(path,options={}){const r=await fetch('/api/intercom/public/'+encodeURIComponent(cid)+'/'+path,{cache:'no-store',...options});const b=await r.json();if(!r.ok){const wait=Number(b.retryAfterSeconds);const explanation=Number.isFinite(wait)&&wait>0?' Tente novamente em cerca de '+Math.ceil(wait/60)+' minuto(s).':'';throw Error((b.message||'Falha de comunicação')+explanation);}return b;}
@@ -22,8 +22,54 @@ function freshVisitorLocation(){
   },{enableHighAccuracy:true,timeout:18000,maximumAge:0});
  });
 }
-if(!cid){setNotice('QR Code inválido: condomínio não identificado.');}else api('units').then(d=>{$('#place').textContent=d.name||'Bem-vindo!';$('#unit').innerHTML='<option value="">Selecione a residência</option>';for(const u of d.units){const opt=document.createElement('option');opt.value=u.id;opt.textContent=u.label;$('#unit').append(opt);}locationReady=d.locationReady===true;$('#call').disabled=!d.units.length||!locationReady;if(!locationReady)setNotice('Interfone bloqueado: a administração precisa cadastrar a localização da portaria.');else if(!d.units.length)setNotice('Nenhuma residência disponível no momento.');}).catch(e=>setNotice(e.message));
-$('#call').onclick=async()=>{if(!$('#unit').value)return setNotice('Selecione uma residência.');if(!locationReady)return setNotice('Localização da portaria ainda não configurada.');$('#call').disabled=true;setNotice('Verificando a localização do celular...');try{ctx=new(window.AudioContext||window.webkitAudioContext)();await ctx.resume();const location=await freshVisitorLocation();setNotice('Localização recebida. Verificando distância da portaria...');const s=await api('calls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unitId:$('#unit').value,reason:$('#reason').value,location})});setNotice('');call=s.callId;secret=s.callToken;started=Date.now();$('#start').classList.add('hidden');$('#calling').classList.remove('hidden');$('#cancel').onclick=async()=>{try{await api('calls/'+call+'/cancel',{method:'POST',headers:{Authorization:'Bearer '+secret}});}catch{}done('ended');};await poll();timer=setInterval(poll,2000);}catch(e){stream?.getTracks().forEach(t=>t.stop());stream=null;setNotice(e.message);$('#call').disabled=false;}};
+// Same-network mode is an explicit, temporary Preview-only test, not a geofence.
+if(!cid){
+ setNotice('QR Code inválido: condomínio não identificado.');
+}else api('units').then(d=>{
+ $('#place').textContent=d.name||'Bem-vindo!';
+ $('#unit').innerHTML='<option value="">Selecione a residência</option>';
+ for(const u of d.units){const opt=document.createElement('option');opt.value=u.id;opt.textContent=u.label;$('#unit').append(opt);}
+ locationReady=d.locationReady===true;
+ networkTestAllowed=d.pilotNetworkTestAllowed===true;
+ $('#call').disabled=!d.units.length||!(locationReady||networkTestAllowed);
+ if(networkTestAllowed){
+  $('#location-explainer').textContent='MODO DE TESTE • Seu notebook está usando a mesma saída de internet autorizada pelo morador. O GPS de 20 m está dispensado somente neste piloto e por tempo limitado.';
+  $('#call').textContent='☎ Chamar (teste na mesma rede)';
+  setNotice('Modo de teste liberado. Não é uma comprovação de proximidade física.');
+ }else if(!locationReady){
+  setNotice(d.pilotNetworkTestSupported?
+   'Interfone bloqueado: no celular do morador, abra a Central de Interfone e ative o teste na mesma rede. Depois recarregue esta página no notebook.':
+   'Interfone bloqueado: a administração precisa cadastrar a localização da portaria.');
+ }else if(!d.units.length)setNotice('Nenhuma residência disponível no momento.');
+}).catch(e=>setNotice(e.message));
+$('#call').onclick=async()=>{
+ if(!$('#unit').value)return setNotice('Selecione uma residência.');
+ if(!locationReady&&!networkTestAllowed)return setNotice('GPS da portaria não configurado. Autorize o teste na rede do morador.');
+ $('#call').disabled=true;
+ try{
+  ctx=new(window.AudioContext||window.webkitAudioContext)();await ctx.resume();
+  const body={unitId:$('#unit').value,reason:$('#reason').value};
+  if(networkTestAllowed){
+   setNotice('Verificando autorização temporária da rede de testes...');
+   body.pilotNetworkTest=true;
+  }else{
+   setNotice('Verificando a localização do celular...');
+   body.location=await freshVisitorLocation();
+   setNotice('Localização recebida. Verificando distância da portaria...');
+  }
+  const s=await api('calls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  setNotice('');call=s.callId;secret=s.callToken;started=Date.now();
+  $('#start').classList.add('hidden');$('#calling').classList.remove('hidden');
+  $('#cancel').onclick=async()=>{
+   try{await api('calls/'+call+'/cancel',{method:'POST',headers:{Authorization:'Bearer '+secret}});}catch{}
+   done('ended');
+  };
+  await poll();timer=setInterval(poll,2000);
+ }catch(e){
+  stream?.getTracks().forEach(t=>t.stop());stream=null;
+  setNotice(e.message);$('#call').disabled=false;
+ }
+};
 
 const sleep=t=>new Promise(r=>setTimeout(r,t));
 async function completeIce(pc){if(pc.iceGatheringState==='complete')return;await Promise.race([new Promise(resolve=>pc.addEventListener('icegatheringstatechange',function done(){if(pc.iceGatheringState==='complete'){pc.removeEventListener('icegatheringstatechange',done);resolve();}})),sleep(9000)]);}
