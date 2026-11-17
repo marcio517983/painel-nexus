@@ -2,6 +2,79 @@ const $=s=>document.querySelector(s),cid=new URLSearchParams(location.search).ge
 let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false,networkTestAllowed=false;
 let cameraStream=null,remoteAudio=null;
 const reasons={entrega:'Entrega',visita:'Visita',servico:'Serviço',outro:'Outro'};
+
+let stopMicMonitoring=null;
+function microphoneConstraints(){
+ const selected=$('#microphone-device').value;
+ return {
+  echoCancellation:true,noiseSuppression:true,autoGainControl:true,
+  ...(selected?{deviceId:{exact:selected}}:{})
+ };
+}
+function audioMeter(sourceStream,context,onLevel){
+ const source=context.createMediaStreamSource(sourceStream);
+ const analyser=context.createAnalyser();
+ analyser.fftSize=1024;source.connect(analyser);
+ const readings=new Uint8Array(analyser.fftSize);
+ const timer=setInterval(()=>{
+  if(sourceStream.getAudioTracks().every(t=>t.readyState!=='live'))return;
+  analyser.getByteTimeDomainData(readings);
+  const squared=readings.reduce((sum,n)=>sum+((n-128)/128)**2,0)/readings.length;
+  onLevel(Math.sqrt(squared));
+ },250);
+ return ()=>{clearInterval(timer);source.disconnect();analyser.disconnect()};
+}
+async function listMicrophones(){
+ if(!navigator.mediaDevices?.enumerateDevices)return;
+ try{
+  const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='audioinput');
+  const select=$('#microphone-device'),previous=select.value;
+  select.replaceChildren();
+  const option=document.createElement('option');option.value='';option.textContent='Microfone padrão do dispositivo';select.append(option);
+  for(const device of devices){
+   if(!device.deviceId)continue;
+   const item=document.createElement('option');
+   item.value=device.deviceId;item.textContent=device.label||'Entrada de áudio';select.append(item);
+  }
+  if(devices.some(d=>d.deviceId===previous))select.value=previous;
+ }catch{/* Browser may hide device labels before permission. */}
+}
+$('#microphone-test-button').onclick=async()=>{
+ const button=$('#microphone-test-button'),status=$('#microphone-test-status');
+ button.disabled=true;
+ let sample=null,testCtx=null,stop=null,hasVoice=false;
+ try{
+  if(!navigator.mediaDevices?.getUserMedia)throw Error('Microfone indisponível neste navegador.');
+  sample=await navigator.mediaDevices.getUserMedia({audio:microphoneConstraints(),video:false});
+  testCtx=new(window.AudioContext||window.webkitAudioContext)();await testCtx.resume();
+  await listMicrophones();
+  status.textContent='Fale normalmente no microfone por 3 segundos...';
+  stop=audioMeter(sample,testCtx,volume=>{
+   if(volume>0.018)hasVoice=true;
+   if(hasVoice)status.textContent='Microfone captando voz! Pode iniciar a chamada.';
+  });
+  await new Promise(resolve=>setTimeout(resolve,3000));
+  if(!hasVoice)status.textContent='Microfone autorizado, mas sem voz detectável. Verifique se o microfone está mudo e selecione outra entrada.';
+ }catch(e){status.textContent='Falha no microfone: '+(e.message||e);}
+ finally{
+  stop?.();sample?.getTracks().forEach(t=>t.stop());
+  await testCtx?.close().catch(()=>{});
+  button.disabled=false;
+ }
+};
+function stopLiveMic(){
+ stopMicMonitoring?.();stopMicMonitoring=null;
+}
+function watchLiveMic(audioStream){
+ stopLiveMic();
+ if(!ctx)return;
+ const status=$('#microphone-live-status');
+ stopMicMonitoring=audioMeter(audioStream,ctx,level=>{
+  status.textContent=level>0.018?'🎙️ Seu microfone está captando voz.':'🎙️ Microfone ativo, mas não detectamos sua voz. Verifique a entrada e fale mais perto.';
+ });
+}
+window.addEventListener('load',listMicrophones);
+
 const setNotice=s=>$('#notice').textContent=s;
 /** The laptop webcam is a temporary portaria camera for this Preview pilot.
  * Never start capture silently; the visitor must click the explicit button.
@@ -72,6 +145,7 @@ $('#camera-start').onclick=async()=>{
 $('#camera-stop').onclick=stopCamera;
 window.addEventListener('pagehide',()=>{
  stopCamera();
+ stopLiveMic();
  stream?.getTracks().forEach(track=>track.stop());
  peer?.close();
 });
@@ -79,8 +153,8 @@ window.addEventListener('pagehide',()=>{
 async function api(path,options={}){const r=await fetch('/api/intercom/public/'+encodeURIComponent(cid)+'/'+path,{cache:'no-store',...options});const b=await r.json();if(!r.ok){const wait=Number(b.retryAfterSeconds);const explanation=Number.isFinite(wait)&&wait>0?' Tente novamente em cerca de '+Math.ceil(wait/60)+' minuto(s).':'';throw Error((b.message||'Falha de comunicação')+explanation);}return b;}
 function tone(frequency,duration){if(!ctx)return;const oscillator=ctx.createOscillator(),g=ctx.createGain();oscillator.type='sine';oscillator.frequency.value=frequency;g.gain.value=0.055;oscillator.connect(g).connect(ctx.destination);oscillator.start();oscillator.stop(ctx.currentTime+duration); }
 function ring(){if(!ctx)return;const elapsed=(Date.now()-started)/1000;if(elapsed%6<1.8){tone(425,.32);setTimeout(()=>{if(call)tone(425,.32)},520);}}
-function done(status){peer?.close();peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;remoteAudio?.remove();remoteAudio=null;stopCamera();audioStarted=false;clearInterval(timer);timer=null;call=null;secret='';const map={answered:['Chamada atendida','Conectando áudio com o morador...'],declined:['Ocupado','O morador não pôde atender.'],missed:['Não atendida','O tempo de chamada terminou.'],ended:['Chamada encerrada','A chamada foi encerrada.']};const [title,message]=map[status]||['Chamada encerrada','Tente novamente mais tarde.'];$('#title').textContent=title;$('#sub').textContent=message;$('#clock').textContent='';$('#symbol').textContent='✕';$('#cancel').textContent='Nova chamada';$('#cancel').onclick=()=>location.reload();if(['missed','declined'].includes(status)){tone(480,.25);setTimeout(()=>tone(480,.25),480);setTimeout(()=>tone(480,.25),960);}}
-async function poll(){if(!call)return;try{const s=await api('calls/'+call,{headers:{Authorization:'Bearer '+secret}});if(s.status==='answered'){if(!audioStarted){audioStarted=true;$('#title').textContent='Chamada atendida';$('#sub').textContent='Conectando áudio com o morador...';startAudio().catch(e=>{setNotice('Microfone não autorizado: '+e.message);offerMicRetry();});}return;}if(s.status!=='ringing'){done(s.status);return;}const seconds=Math.max(0,s.expires-Math.floor(Date.now()/1000));$('#clock').textContent='00:'+String(seconds).padStart(2,'0');if(!seconds){done('missed');return;}ring();}catch(e){setNotice('Conexão instável. Verificando chamada...');}}
+function done(status){stopLiveMic();peer?.close();peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;remoteAudio?.remove();remoteAudio=null;stopCamera();audioStarted=false;clearInterval(timer);timer=null;call=null;secret='';const map={answered:['Chamada atendida','Conectando áudio com o morador...'],declined:['Ocupado','O morador não pôde atender.'],missed:['Não atendida','O tempo de chamada terminou.'],ended:['Chamada encerrada','A chamada foi encerrada.']};const [title,message]=map[status]||['Chamada encerrada','Tente novamente mais tarde.'];$('#title').textContent=title;$('#sub').textContent=message;$('#clock').textContent='';$('#symbol').textContent='✕';$('#cancel').textContent='Nova chamada';$('#cancel').onclick=()=>location.reload();if(['missed','declined'].includes(status)){tone(480,.25);setTimeout(()=>tone(480,.25),480);setTimeout(()=>tone(480,.25),960);}}
+async function poll(){if(!call)return;try{const s=await api('calls/'+call,{headers:{Authorization:'Bearer '+secret}});if(s.status==='answered'){if(!audioStarted){audioStarted=true;$('#title').textContent='Chamada atendida';$('#sub').textContent='Conectando áudio com o morador...';startAudio().catch(e=>{setNotice('Não foi possível transmitir o microfone: '+e.message);offerMicRetry();});}return;}if(s.status!=='ringing'){done(s.status);return;}const seconds=Math.max(0,s.expires-Math.floor(Date.now()/1000));$('#clock').textContent='00:'+String(seconds).padStart(2,'0');if(!seconds){done('missed');return;}ring();}catch(e){setNotice('Conexão instável. Verificando chamada...');}}
 function freshVisitorLocation(){
  return new Promise((resolve,reject)=>{
   if(!window.isSecureContext||!navigator.geolocation){reject(Error('Este navegador não disponibiliza GPS seguro. Abra o QR Code pelo navegador HTTPS do celular.'));return;}
@@ -169,7 +243,8 @@ async function completeIce(pc){
 async function startAudio(){
  if(!call)return;
  const id=call,authorization={Authorization:'Bearer '+secret};
- stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+ stream=await navigator.mediaDevices.getUserMedia({audio:microphoneConstraints(),video:false});
+ watchLiveMic(stream);
  if(call!==id){stream.getTracks().forEach(t=>t.stop());stream=null;return;}
  peer=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
  // One local stream with audio + optional webcam video makes the tracks
