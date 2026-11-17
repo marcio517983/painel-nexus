@@ -70,7 +70,7 @@ test('visitor webcam capture only starts by explicit click and adds video+audio 
  assert.equal(h.captures.length,1);
  assert.equal(h.captures[0].audio,false);
  assert.ok(h.captures[0].video);
- assert.equal(h.element('#camera-preview').hidden,false);
+ assert.equal(h.element('#camera-status').textContent.includes('Câmera pronta.'),true);
  runInContext('call="123"; secret="test-call-token";',h.ctx);
  await runInContext('startAudio()',h.ctx);
  const peer=h.peerConnections.at(-1);
@@ -78,7 +78,7 @@ test('visitor webcam capture only starts by explicit click and adds video+audio 
  assert.equal(peer.added[0].media,peer.added[1].media);
  runInContext('done("ended")',h.ctx);
  assert.equal(h.webcam.getVideoTracks()[0].readyState,'ended');
- assert.equal(h.element('#calling-video').hidden,true);
+ assert.equal(h.element('#calling-video-status').hidden,true);
 });
 
 test('visitor call stays audio-only when the webcam is off',async()=>{
@@ -113,6 +113,9 @@ test('resident displays remote video while audio still uses its own element',asy
 test('videoporteiro markup includes distinct camera capture and resident playback controls',()=>{
  const visitor=readFileSync(new URL('../public/interfone.html',import.meta.url),'utf8');
  const resident=readFileSync(new URL('../public/interfone-morador.html',import.meta.url),'utf8');
- for(const id of ['camera-device','camera-start','camera-stop','camera-preview','calling-video'])assert.match(visitor,new RegExp('id="'+id+'"'));
+ for(const id of ['camera-device','camera-start','camera-stop','camera-status','calling-video-status'])assert.match(visitor,new RegExp('id="'+id+'"'));
+ // Visitor cannot see the captured camera even during an active call.
+ assert.doesNotMatch(visitor,/<video\\b/i);
+ assert.doesNotMatch(visitor,/id="camera-preview"|id="calling-video"/);
  for(const id of ['remote-video','video-status','remote-audio'])assert.match(resident,new RegExp('id="'+id+'"'));
 });
