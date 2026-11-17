@@ -9,7 +9,7 @@ function accessIcon(name){
  const paths=/hall|porta\b/.test(key)?'<path d="M6 21V3h12v18M3 21h18M14 12h.01"/>':/pedestre/.test(key)?'<circle cx="13" cy="4" r="2"/><path d="m7 21 3-7 3 3v4M10 14l2-7 3 4h4M7 11l3-3"/>':'<path d="m5 11 2-5h10l2 5M4 11h16v7H4zM7 18v3m10-3v3M7 14h.01M17 14h.01"/>';
  const icon=document.createElement('span');icon.className='access-icon';icon.setAttribute('aria-hidden','true');icon.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+paths+'</svg>';return icon;
 }
-const $=s=>document.querySelector(s),central=new URLSearchParams(location.search).get('central')||(()=>{try{return localStorage.getItem('nexus:lastCentral')||''}catch{return ''}})();let snapshot=null,busy=false,selected=null;
+const $=s=>document.querySelector(s);let central=new URLSearchParams(location.search).get('central')||(()=>{try{return localStorage.getItem('nexus:lastCentral')||''}catch{return ''}})();let snapshot=null,busy=false,selected=null;
 const position=s=>({0:'Fechado',1:'Aberto / não fechado',2:'Entre os fins de curso',3:'Falha: dois sensores ativos'})[s]||'Posição não monitorada';
 function notice(s,error=false){$('#notice').textContent=s;$('#notice').className=error?'error':'';}
 async function api(path,body){const r=await fetch('/api/resident/'+path+'?central='+encodeURIComponent(central),{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const d=await r.json();if(!r.ok){const e=Error(d.message||'Não foi possível consultar a central.');e.status=r.status;throw e}return d;}
@@ -18,7 +18,43 @@ async function refresh(){if(busy||$('#confirm').open)return;try{render(await api
 async function logs(){if(snapshot?.role!=='sindico'){$('#history').hidden=true;$('#events').replaceChildren();return}try{const d=await api('logs');$('#history').hidden=false;$('#events').replaceChildren();for(const e of d.events){const row=document.createElement('div');row.className='event';const t=document.createElement('small');t.textContent=new Date(e.at*1000).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'});const msg=document.createElement('span');msg.textContent=(e.actorName||'Pessoa não identificada')+' · '+(e.deviceName||'Acesso não identificado')+' · '+e.action+' · '+e.result;row.append(t,msg);$('#events').append(row)}if(!d.events.length)$('#events').textContent='Sem acionamentos online registrados.'}catch{}}
 $('#confirm').addEventListener('close',async()=>{if($('#confirm').returnValue!=='send'||!selected||busy)return;const device=selected;busy=true;render(snapshot);let posted=false;try{const requestId=crypto.randomUUID();const result=await api('commands',{deviceId:device.id,requestId});posted=true;notice('Comando aceito. Aguardando confirmação do equipamento…');let finished=false;for(let i=0;i<12;i++){await new Promise(r=>setTimeout(r,1500));const r=await api('commands/'+result.commandId);if(['queued','sent'].includes(r.status))continue;finished=true;notice(r.status==='executed'?'Equipamento confirmou o pulso. Consulte a posição do portão.':r.result||'Sem confirmação de execução. Confira o estado antes de repetir.',r.status!=='executed');break}if(!finished)notice('Sem confirmação. Confira o estado antes de repetir.',true)}catch(e){notice((posted?'A confirmação não pôde ser consultada. Confira o portão. ':'' )+e.message,true)}finally{busy=false;await refresh();await logs()}});
 $('#central-form').onsubmit=e=>{e.preventDefault();location.href='/?central='+encodeURIComponent($('#central').value.trim())};$('#refresh').onclick=logs;
-if(!central){$('#entry').hidden=false;$('#hello').textContent='Bem-vindo.';$('#client').textContent='Use o link da sua administração.';$('#connection').hidden=true}else{refresh().then(()=>{if(snapshot)logs()});setInterval(refresh,5000)}
+async function initializeResidentPage(){
+ try{
+  // Never trust a stale query parameter or a different Preview's localStorage
+  // to select the resident's tenant. Derive it from the authenticated session.
+  const response=await fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok){
+   $('#access').hidden=true;
+   $('#hello').textContent=response.status===401?'Entre na sua conta NexusMaster':'Não foi possível verificar sua sessão';
+   $('#client').textContent='Abra o login desta versão de testes e entre novamente.';
+   const a=document.createElement('a');a.href='/';a.textContent='Entrar no NexusMaster';
+   $('#notice').replaceChildren(a);
+   return;
+  }
+  const {user}=await response.json();
+  if(!user?.clientId||!['morador','sindico'].includes(user.role)){
+   $('#access').hidden=true;
+   $('#hello').textContent='Conta sem perfil de morador';
+   $('#client').textContent='Entre com o usuário morador do condomínio de testes. A conta Master não possui acesso direto ao painel do morador.';
+   const a=document.createElement('a');a.href='/';a.textContent='Trocar de conta';$('#notice').replaceChildren(a);
+   return;
+  }
+  central=user.clientId;
+  try{localStorage.setItem('nexus:lastCentral',central)}catch{}
+  const url=new URL(location.href);
+  if(url.searchParams.get('central')!==central){
+   url.searchParams.set('central',central);
+   history.replaceState(null,'',url.pathname+url.search);
+  }
+  await refresh();if(snapshot)await logs();
+  setInterval(refresh,5000);
+ }catch(e){
+  $('#access').hidden=true;
+  $('#hello').textContent='Falha ao verificar o acesso';
+  notice('Não foi possível consultar a sessão. Abra a versão atualizada pelo mesmo navegador e tente novamente.',true);
+ }
+}
+initializeResidentPage();
 
 function renderExtras(d){
  $('#water').hidden=d.role!=='sindico';$('#water-devices').replaceChildren();for(const n of d.water||[]){const p=document.createElement('p');p.textContent=n.name+' · '+(!n.online?'Sem comunicação':`Nível: ${n.level>=0?n.level+'%':'não informado'} · Bomba: ${n.pump===1?'ligada':n.pump===0?'desligada':'não informado'} · Ciclos: ${Number.isFinite(n.cycles)?n.cycles:'não informado'} · Horas: ${Number.isFinite(n.runtimeSeconds)?(n.runtimeSeconds/3600).toFixed(1):'não informado'}`);$('#water-devices').append(p)}
