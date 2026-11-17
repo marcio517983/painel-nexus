@@ -23,7 +23,7 @@ function resetInboundAudioDiagnostics(){
 }
 function showAudioUnlock(message){
  $('#visitor-audio-status').textContent=message;
- $('#enable-visitor-audio').hidden=false;
+ const button=$('#enable-visitor-audio');button.hidden=false;button.textContent='🔊 Ouvir visitante';
 }
 async function tryPlayVisitorAudio(){
  const audio=$('#remote-audio');
@@ -31,13 +31,15 @@ async function tryPlayVisitorAudio(){
  audio.autoplay=true;audio.muted=false;audio.volume=1;
  try{
   await audio.play();
-  $('#enable-visitor-audio').hidden=true;
-  $('#visitor-audio-status').textContent='Áudio do visitante habilitado.';
+  const button=$('#enable-visitor-audio');
+  button.hidden=false;
+  button.textContent='🔊 Reativar áudio';
+  $('#visitor-audio-status').textContent='Áudio do visitante habilitado. Se não ouvir, toque em Reativar áudio.';
  }catch{
   showAudioUnlock('O Android bloqueou a reprodução automática. Toque em Ouvir visitante.');
  }
 }
-$('#enable-visitor-audio').onclick=()=>tryPlayVisitorAudio();
+$('#enable-visitor-audio').onclick=async()=>{await preferNativeSpeaker();await tryPlayVisitorAudio();};
 function startInboundAudioDiagnostics(){
  if(inboundAudioTimer)return;
  inboundAudioTimer=setInterval(async()=>{
