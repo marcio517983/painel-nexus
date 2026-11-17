@@ -1,5 +1,6 @@
 import {handle,validateConfig} from './core.mjs';
 import {intercom} from './intercom.mjs';
+import {nexusOriginAllowed} from './preview-origin.mjs';
 import {identity,login,query,randomToken,digest,now,passwordHash} from './auth.mjs';
 import {acceptInvite,normalizeCpf} from './invites.mjs';
 const json=(v,status=200,headers={})=>new Response(JSON.stringify(v),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
@@ -10,7 +11,7 @@ async function save(env,c,expected){validateConfig(c);const changed=await query(
 async function audit(env,c,u,action,result){await query(env,'INSERT INTO events VALUES(?,?,?,?,?,?,?)',crypto.randomUUID(),c.id,now(),'resident:'+u.id,action,'Convite',result).run();}
 export async function application(r,environment){try{
  const env={...environment,RESIDENT_PORTAL_SECRET:'server-internal-only'},url=new URL(r.url),p=url.pathname;
- if(r.method!=='GET'&&r.method!=='HEAD'&&!p.startsWith('/api/intercom/public/')&&!p.startsWith('/api/v1/gateway/')&&r.headers.get('Origin')!==env.NEXUS_ORIGIN)return denied();
+ if(r.method!=='GET'&&r.method!=='HEAD'&&!p.startsWith('/api/intercom/public/')&&!p.startsWith('/api/v1/gateway/')&&!nexusOriginAllowed(r,env))return denied();
  if(p.startsWith('/api/intercom/'))return intercom(r,env);
  if(p==='/api/auth/login'&&r.method==='POST'){const out=await login(r,env);return out.user?json({user:safeUser(out.user)},200,{'Set-Cookie':out.cookie}):json({message:out.message},out.status);}
  if((p==='/api/auth/invite'||p==='/api/auth/invite/check')&&r.method==='POST')return await acceptInvite(r,env,{checkOnly:p.endsWith('/check')});
