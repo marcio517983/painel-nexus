@@ -60,7 +60,7 @@ export async function sendFcmCall(env,token,call){
    token,
    data:{kind:'intercom',firebaseProject:PROJECT,callId:call.id,
     expires:String(call.expires),unitId:String(call.unitId),
-    label:String(call.label||'Residência').slice(0,80),
+    label:'Portaria',destinationLabel:String(call.label||'Residência').slice(0,80),
     reason:String(call.reason||'Visitante na portaria').slice(0,70)},
    android:{priority:'HIGH',ttl:'30s',collapse_key:'nexus-intercom-'+call.unitId,
     restricted_package_name:PACKAGE}
