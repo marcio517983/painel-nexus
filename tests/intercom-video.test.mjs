@@ -113,6 +113,6 @@ test('resident displays remote video while audio still uses its own element',asy
 test('videoporteiro markup includes distinct camera capture and resident playback controls',()=>{
  const visitor=readFileSync(new URL('../public/interfone.html',import.meta.url),'utf8');
  const resident=readFileSync(new URL('../public/interfone-morador.html',import.meta.url),'utf8');
- for(const id of ['camera-start','camera-stop','camera-preview','calling-video'])assert.match(visitor,new RegExp('id="'+id+'"'));
+ for(const id of ['camera-device','camera-start','camera-stop','camera-preview','calling-video'])assert.match(visitor,new RegExp('id="'+id+'"'));
  for(const id of ['remote-video','video-status','remote-audio'])assert.match(resident,new RegExp('id="'+id+'"'));
 });
