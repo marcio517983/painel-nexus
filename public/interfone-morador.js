@@ -17,23 +17,60 @@ function releaseNativeSpeaker(){
  const native=nexusNative();
  if(native?.releaseSpeaker)native.releaseSpeaker().catch(()=>{});
 }
-async function registerFirebaseDevice({silent=false}={}){
+// Always derive the visible notification state from Android permission AND the
+// authenticated FCM device binding, not from a button click remembered locally.
+let nativeNotificationSyncing=false;
+async function registerFirebaseDevice(){
  const native=nexusNative();
- if(!native?.fcmToken)return false;
+ if(!native?.fcmToken)throw Error('Firebase indisponível nesta versão do aplicativo.');
+ const result=await native.fcmToken();
+ if(!result?.token)throw Error('Token Firebase não disponível.');
+ return post('fcm/register',{token:result.token});
+}
+function setNativeNotificationUi(message,{buttonLabel='Ativar notificações',showButton=true}={}){
+ const button=$('#enable-notifications');
+ $('#notification-status').textContent=message;
+ button.hidden=!showButton;
+ button.disabled=false;
+ button.textContent=buttonLabel;
+}
+async function syncNativeNotificationUi(){
+ if(nativeNotificationSyncing||!validUser()||!nexusNative())return;
+ nativeNotificationSyncing=true;
  try{
-  const result=await native.fcmToken();
-  if(!result?.token)throw Error('Token Firebase não disponível.');
-  const linked=await post('fcm/register',{token:result.token});
-  if(!silent){
-   $('#notification-status').textContent=linked.deliveryConfigured?
-    'Celular vinculado ao Firebase. Chamadas externas podem ser entregues com o app em segundo plano.':
-    'Celular cadastrado no Firebase. Falta habilitar a autorização de envio FCM no servidor Vercel.';
+  const permissions=await nexusNative().status();
+  if(!permissions?.notificationEnabled){
+   setNativeNotificationUi('As notificações estão desativadas nas configurações do Android.');
+   return;
   }
-  return true;
+  let device;
+  try{device=await registerFirebaseDevice();}
+  catch(e){
+   setNativeNotificationUi('Notificações permitidas, mas o Firebase não está vinculado: '+(e.message||e),{
+    buttonLabel:'Vincular ao Firebase'
+   });
+   return;
+  }
+  if(!permissions.fullScreenEnabled){
+   setNativeNotificationUi('Notificações ativadas e celular vinculado ao Firebase. Falta permitir que as chamadas apareçam sobre a tela.',{
+    buttonLabel:'Permitir chamadas em tela cheia'
+   });
+   return;
+  }
+  if(device?.deliveryConfigured){
+   setNativeNotificationUi('Notificações ativadas. Celular vinculado ao Firebase e chamadas em tela cheia permitidas.',{
+    showButton:false
+   });
+  }else{
+   setNativeNotificationUi('Notificações do Android ativadas. Celular vinculado; envio pelo servidor Firebase ainda não configurado.',{
+    buttonLabel:'Verificar notificações'
+   });
+  }
  }catch(e){
-  if(!silent)$('#notification-status').textContent='FCM ainda não vinculado: '+(e.message||e);
-  return false;
- }
+  setNativeNotificationUi('Não foi possível verificar notificações: '+(e.message||e),{
+   buttonLabel:'Verificar notificações'
+  });
+ }finally{nativeNotificationSyncing=false;}
 }
 async function showNativeIncoming(c){
  const native=nexusNative();
@@ -224,18 +261,11 @@ async function enableNotifications(){
  try{
   const native=nexusNative();
   if(native){
-    const statusInfo=await native.enable();
-    if(!statusInfo.notificationEnabled)throw Error('Autorize as notificações Android para o NexusMaster nas configurações do aparelho.');
-    if(!statusInfo.fullScreenEnabled){
-      status.textContent='Notificações permitidas. Autorize também chamadas em tela cheia nas configurações do Android.';
-      await native.fullScreenSettings();
-      button.disabled=false;
-      return;
-    }
-    await registerFirebaseDevice();
-    button.textContent='Alertas Android ativados';
-    button.hidden=true;
-    return;
+   const permission=await native.enable();
+   if(!permission?.notificationEnabled)throw Error('Autorize as notificações do NexusMaster nas configurações do Android.');
+   if(!permission.fullScreenEnabled)await native.fullScreenSettings();
+   await syncNativeNotificationUi();
+   return;
   }
   if(!('Notification' in window)||!('PushManager' in window)||!('serviceWorker' in navigator)){
    throw Error('Este navegador não oferece notificações Push para o aplicativo.');
@@ -261,7 +291,7 @@ async function enableNotifications(){
 $('#enable-notifications').onclick=enableNotifications;
 async function checkNotificationState(){
  if(nexusNative()){
-  $('#notification-status').textContent='APK Android: toque em Ativar notificações para permitir chamadas e apresentação em tela cheia.';
+  await syncNativeNotificationUi();
   return;
  }
  if(!('Notification' in window))return;
@@ -294,12 +324,15 @@ async function setup(){
    await loadUnits();
   }
   await checkNotificationState();
-  if(nexusNative()?.fcmToken){
-   const info=await nexusNative().status().catch(()=>null);
-   if(info?.notificationEnabled)await registerFirebaseDevice({silent:true});
-  }
   await refresh();
   setInterval(refresh,2300);
  }catch(e){notice('Não foi possível iniciar o painel: '+e.message)}
 }
+// When returning from Android notification settings, refresh the visible status.
+document.addEventListener('visibilitychange',()=>{
+ if(!document.hidden&&validUser()&&nexusNative())syncNativeNotificationUi();
+});
+window.addEventListener('focus',()=>{
+ if(validUser()&&nexusNative())syncNativeNotificationUi();
+});
 setup();
