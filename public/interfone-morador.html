@@ -9,12 +9,12 @@
 #active-audio{border:1px solid #237958;background:#102b28;border-radius:12px;padding:18px;margin:16px 0}
 @keyframes ringicon{0%,100%{transform:rotate(0deg)}20%{transform:rotate(15deg)}40%{transform:rotate(-15deg)}60%{transform:rotate(8deg)}80%{transform:rotate(-8deg)}}
 @media(prefers-reduced-motion:reduce){.intercom-modal .bell{animation:none}}
-</style><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#132c46"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="NexusMaster"><link rel="apple-touch-icon" href="/icons/nexusmaster-192.png"><link rel="icon" type="image/png" sizes="192x192" href="/icons/nexusmaster-192.png"></head><body><main><header><a href="/" class="brand">⌘ NEXUSMASTER</a></header><h1>Central de interfone</h1><button type="button" data-pwa-install hidden>Instalar NexusMaster</button><p><a href="/morador.html">Voltar aos meus acessos</a></p><p>Atenda às chamadas da sua residência no navegador. Mantenha esta página aberta durante o piloto.</p><p id="notice" role="status" aria-live="polite"></p>
+</style><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#132c46"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="NexusMaster"><link rel="apple-touch-icon" href="/icons/nexusmaster-192.png"><link rel="icon" type="image/png" sizes="192x192" href="/icons/nexusmaster-192.png"></head><body><main><header><a href="/" class="brand">⌘ NEXUSMASTER</a></header><h1>Central de interfone</h1><button type="button" data-pwa-install hidden>Instalar NexusMaster</button><p><a href="/morador.html">Voltar aos meus acessos</a></p><p id="intercom-description">Atenda às chamadas da sua residência no navegador. Mantenha esta página aberta durante o piloto.</p><p id="notice" role="status" aria-live="polite"></p>
 <section id="notification-help">
 <strong>Alertas de interfone</strong>
 <p id="notification-status">Ative as notificações para receber avisos de chamadas no celular, inclusive com o PWA instalado.</p>
 <button type="button" id="enable-notifications">Ativar notificações</button>
-<p class="muted">O Android pode solicitar permissão. A entrega depende das configurações do aparelho e da conexão; não equivale a uma ligação telefônica nativa.</p>
+<p class="muted" id="notification-explainer">O Android pode solicitar permissão. A entrega depende das configurações do aparelho e da conexão; não equivale a uma ligação telefônica nativa.</p>
 </section>
 <section id="active-audio" hidden>
 <h2>📞 Em comunicação</h2><p id="active-audio-label">Interfone conectado ao visitante</p>
