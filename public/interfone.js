@@ -21,18 +21,41 @@ function stopCamera(){
  $('#camera-stop').hidden=true;
  $('#camera-status').textContent='Câmera desligada. A chamada continua disponível somente com áudio.';
 }
+async function updateVideoDevices(){
+ if(!navigator.mediaDevices?.enumerateDevices)return;
+ try{
+  const sources=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+  const select=$('#camera-device'),selected=select.value;
+  select.replaceChildren();
+  const defaultOpt=document.createElement('option');
+  defaultOpt.value='';defaultOpt.textContent='Câmera padrão do notebook';select.append(defaultOpt);
+  for(let i=0;i<sources.length;i++){
+   const option=document.createElement('option');
+   option.value=sources[i].deviceId;
+   option.textContent=sources[i].label||'Câmera '+(i+1);
+   select.append(option);
+  }
+  if(sources.some(d=>d.deviceId===selected))select.value=selected;
+ }catch{/* Camera capture still works if device listing is unavailable. */}
+}
+$('#camera-device').addEventListener('change',()=>{
+ if(cameraActive()){
+  stopCamera();
+  $('#camera-status').textContent='Fonte de vídeo alterada. Clique em Ativar câmera para iniciar a nova fonte.';
+ }
+});
 $('#camera-start').onclick=async()=>{
  const button=$('#camera-start');
  button.disabled=true;
  $('#camera-status').textContent='Solicitando acesso à câmera do notebook...';
  try{
   if(!navigator.mediaDevices?.getUserMedia)throw Error('Este navegador não tem acesso à webcam.');
-  const captured=await navigator.mediaDevices.getUserMedia({
-   video:{width:{ideal:640},height:{ideal:360},frameRate:{ideal:15,max:20}},
-   audio:false
-  });
+  const videoSettings={width:{ideal:640},height:{ideal:360},frameRate:{ideal:15,max:20}};
+  if($('#camera-device').value)videoSettings.deviceId={exact:$('#camera-device').value};
+  const captured=await navigator.mediaDevices.getUserMedia({video:videoSettings,audio:false});
   if(call){captured.getTracks().forEach(t=>t.stop());throw Error('Ative a câmera antes de iniciar a chamada.');}
   cameraStream=captured;
+  await updateVideoDevices();
   const preview=$('#camera-preview');
   preview.srcObject=captured;preview.hidden=false;
   await preview.play().catch(()=>{});
