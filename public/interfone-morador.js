@@ -171,7 +171,9 @@ async function act(c,kind){
    stream=localStream;localStream=null;activeCall=c.id;
    clearPopup();dismissPush(c.id);
    $('#active-audio').hidden=false;$('#active-audio-label').textContent='Conectando a '+c.label+'...';
-   notice('Chamada atendida. Preparando áudio...');
+   $('#video-status').textContent='Verificando transmissão de vídeo da portaria...';
+   $('#remote-video').hidden=true;
+   notice('Chamada atendida. Preparando áudio e vídeo...');
    connectAudio(c.id).catch(async e=>{
     notice('Não foi possível estabelecer o áudio: '+e.message);
     await hangup();
@@ -213,10 +215,27 @@ async function connectAudio(id){
  peer=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
  for(const track of stream.getTracks())peer.addTrack(track,stream);
  peer.ontrack=event=>{
-  // The remote MediaStream may change audio devices after capture starts.
-  preferNativeSpeaker();
-  const audio=$('#remote-audio');audio.srcObject=event.streams[0];
-  audio.play().catch(()=>notice('Toque na tela para liberar o áudio da ligação.'));
+  const media=event.streams[0]||new MediaStream([event.track]);
+  if(event.track.kind==='video'){
+   const video=$('#remote-video');
+   video.srcObject=media;
+   video.hidden=false;
+   $('#video-status').textContent='📹 Vídeo ao vivo da portaria.';
+   video.play().catch(()=>{
+    $('#video-status').textContent='Vídeo recebido. Toque na tela para iniciar a reprodução.';
+   });
+   event.track.addEventListener('ended',()=>{
+    video.pause();video.srcObject=null;video.hidden=true;
+    $('#video-status').textContent='A imagem da portaria foi interrompida. O áudio pode continuar.';
+   },{once:true});
+   return;
+  }
+  if(event.track.kind==='audio'){
+   // Only the audio element plays sound; the video is always muted to avoid echo.
+   preferNativeSpeaker();
+   const audio=$('#remote-audio');audio.srcObject=media;
+   audio.play().catch(()=>notice('Toque na tela para liberar o áudio da ligação.'));
+  }
  };
  peer.onconnectionstatechange=()=>{
   if(peer?.connectionState==='connected'){$('#active-audio-label').textContent='Em comunicação';notice('Áudio conectado.');}
@@ -230,6 +249,9 @@ async function connectAudio(id){
  }
  if(!offer||activeCall!==id)throw Error('Oferta de áudio indisponível');
  await peer.setRemoteDescription(offer);
+ if(!offer.sdp.includes('m=video')){
+  $('#video-status').textContent='Esta chamada está somente com áudio. A câmera do notebook não foi ativada.';
+ }
  const answer=await peer.createAnswer();await peer.setLocalDescription(answer);await completeIce(peer);
  await post('calls/'+id+'/signal',peer.localDescription);
 }
@@ -238,7 +260,10 @@ async function hangup(){
  activeCall=null;peer?.close();peer=null;
  stream?.getTracks().forEach(t=>t.stop());stream=null;
  releaseNativeSpeaker();
- $('#remote-audio').srcObject=null;$('#active-audio').hidden=true;
+ $('#remote-audio').srcObject=null;
+ const remoteVideo=$('#remote-video');remoteVideo.pause();remoteVideo.srcObject=null;remoteVideo.hidden=true;
+ $('#video-status').textContent='Vídeo encerrado.';
+ $('#active-audio').hidden=true;
  if(id)await post('calls/'+id+'/hangup',{}).catch(()=>{});
  notice('Chamada encerrada.');refresh();
 }
