@@ -291,6 +291,8 @@ async function enableNotifications(){
 $('#enable-notifications').onclick=enableNotifications;
 async function checkNotificationState(){
  if(nexusNative()){
+  $('#intercom-description').textContent='Receba chamadas da portaria no aplicativo NexusMaster. Os alertas em segundo plano dependem do Android, da rede e das permissões.';
+  $('#notification-explainer').textContent='As permissões são verificadas automaticamente quando você abre o aplicativo. Você só precisará agir se alguma delas estiver desativada.';
   await syncNativeNotificationUi();
   return;
  }
