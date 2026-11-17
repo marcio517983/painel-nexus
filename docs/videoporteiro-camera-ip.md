@@ -4,8 +4,9 @@
 
 - Escopo: branch `feature/interfone-virtual-mvp`, condomínio fictício `interfone-piloto` na Vercel Preview.
 - O notebook, atuando como visitante/portaria, pode ligar a **webcam mediante clique e permissão explícita**.
-- O navegador mostra uma prévia local. A imagem só é transmitida **após o morador aceitar a chamada**.
-- A trilha de vídeo usa a mesma sessão WebRTC já utilizada pelo áudio, agora com `audio + video` quando a câmera está disponível.
+- **Não existe prévia de vídeo para o visitante.** A captura da webcam só começa por clique e a imagem é transmitida exclusivamente ao morador depois que ele aceita a chamada.
+- A trilha de vídeo usa a mesma sessão WebRTC já utilizada pelo áudio, agora com `audio + video` quando a câmera está disponível. O visitante não recebe nenhuma trilha de vídeo do apartamento.
+- Modo fluidez: captura até **640 × 360, 12 a 15 quadros/s** e tentativa de limite de bitrate **550 kbps** (dependendo do suporte do browser); negociações WebRTC esperam no máximo **4,5 segundos por lado** para coleta inicial de ICE no piloto.
 - O aplicativo Android do morador mostra o vídeo sem reproduzir áudio duplicado; áudio em dois sentidos continua no elemento de áudio.
 - Se a câmera estiver desligada, negada ou indisponível, a chamada mantém seu fluxo original de áudio.
 - O browser e o Android não gravam fotos ou vídeos por essa funcionalidade. Desligar a câmera, encerrar a ligação ou fechar a página interrompe as trilhas locais.
@@ -39,3 +40,7 @@ Alternativa temporária para uma câmera IP: no notebook da portaria, abrir o st
 ## Segurança e restrições
 
 O modo sem GPS é somente para `interfone-piloto` no banco de testes e requer autorização temporal de 15 minutos do morador. Mesmo IP público **não significa** proximidade física. A produção preserva a trava de GPS de 20 metros. Sessões WebRTC dependem de autorização prévia do morador, permissão da câmera e sinalização autenticada. O preview não deve alterar aparelhos reais nem abrir portões.
+
+## Limites de desempenho
+
+A otimização reduz carga da webcam e tempo inicial de sinalização, mas não garante atraso mínimo em todas as redes. Para mensurar atraso audiovisual, testar com um movimento visível e comparar o instante no notebook com o vídeo no celular; redes com perda de pacotes, uplink insuficiente ou hardware sobrecarregado podem adicionar latência. As medidas aplicadas priorizam fluidez no piloto; a integração direta de RTSP/ONVIF continua pendente de gateway de mídia local.
