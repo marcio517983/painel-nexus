@@ -11,10 +11,6 @@ const cameraActive=()=>cameraStream?.getVideoTracks().some(t=>t.readyState==='li
 function stopCamera(){
  cameraStream?.getTracks().forEach(track=>track.stop());
  cameraStream=null;
- for(const id of ['#camera-preview','#calling-video']){
-  const video=$(id);
-  if(video){video.pause();video.srcObject=null;video.hidden=true;}
- }
  $('#calling-video-status').hidden=true;
  $('#camera-start').hidden=false;
  $('#camera-start').disabled=false;
@@ -50,15 +46,19 @@ $('#camera-start').onclick=async()=>{
  $('#camera-status').textContent='Solicitando acesso à câmera do notebook...';
  try{
   if(!navigator.mediaDevices?.getUserMedia)throw Error('Este navegador não tem acesso à webcam.');
-  const videoSettings={width:{ideal:640},height:{ideal:360},frameRate:{ideal:15,max:20}};
+  // Balanced for 3G/4G and Android WebView: fewer frames lower encoder load and
+  // queue pressure, while still retaining enough resolution for video intercom.
+  const videoSettings={width:{ideal:640,max:640},height:{ideal:360,max:360},
+   frameRate:{ideal:12,max:15},resizeMode:'crop-and-scale'};
   if($('#camera-device').value)videoSettings.deviceId={exact:$('#camera-device').value};
   const captured=await navigator.mediaDevices.getUserMedia({video:videoSettings,audio:false});
   if(call){captured.getTracks().forEach(t=>t.stop());throw Error('Ative a câmera antes de iniciar a chamada.');}
   cameraStream=captured;
+  for(const track of cameraStream.getVideoTracks()){
+   if('contentHint' in track)track.contentHint='motion';
+  }
   await updateVideoDevices();
-  const preview=$('#camera-preview');
-  preview.srcObject=captured;preview.hidden=false;
-  await preview.play().catch(()=>{});
+  // Do not attach the camera to any local <video>; only the resident receives it.
   cameraStream.getVideoTracks().forEach(track=>track.addEventListener('ended',()=>{
    if(!cameraActive())stopCamera();
   }));
@@ -137,16 +137,12 @@ $('#call').onclick=async()=>{
   const s=await api('calls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   setNotice('');call=s.callId;secret=s.callToken;started=Date.now();
   $('#start').classList.add('hidden');$('#calling').classList.remove('hidden');
-  if(cameraActive()){
-   $('#calling-video').srcObject=cameraStream;$('#calling-video').hidden=false;
-   $('#calling-video-status').hidden=false;
-   $('#calling-video').play().catch(()=>{});
-  }
+  if(cameraActive())$('#calling-video-status').hidden=false;
   $('#cancel').onclick=async()=>{
    try{await api('calls/'+call+'/cancel',{method:'POST',headers:{Authorization:'Bearer '+secret}});}catch{}
    done('ended');
   };
-  await poll();timer=setInterval(poll,2000);
+  await poll();timer=setInterval(poll,900);
  }catch(e){
   stream?.getTracks().forEach(t=>t.stop());stream=null;
   setNotice(e.message);$('#call').disabled=false;
@@ -154,7 +150,22 @@ $('#call').onclick=async()=>{
 };
 
 const sleep=t=>new Promise(r=>setTimeout(r,t));
-async function completeIce(pc){if(pc.iceGatheringState==='complete')return;await Promise.race([new Promise(resolve=>pc.addEventListener('icegatheringstatechange',function done(){if(pc.iceGatheringState==='complete'){pc.removeEventListener('icegatheringstatechange',done);resolve();}})),sleep(9000)]);}
+async function completeIce(pc){
+ if(pc.iceGatheringState==='complete')return;
+ // Preview pilot on one network: allow a quicker initial SDP exchange.
+ // A few seconds still permit host and STUN candidates to be collected.
+ await Promise.race([
+  new Promise(resolve=>{
+   function onChange(){
+    if(pc.iceGatheringState==='complete'){
+     pc.removeEventListener('icegatheringstatechange',onChange);resolve();
+    }
+   }
+   pc.addEventListener('icegatheringstatechange',onChange);
+  }),
+  sleep(4500)
+ ]);
+}
 async function startAudio(){
  if(!call)return;
  const id=call,authorization={Authorization:'Bearer '+secret};
@@ -165,7 +176,20 @@ async function startAudio(){
  // available together at the remote Android videoporteiro.
  const videoTracks=cameraActive()?cameraStream.getVideoTracks():[];
  const sharedMedia=new MediaStream([...stream.getAudioTracks(),...videoTracks]);
- sharedMedia.getTracks().forEach(track=>peer.addTrack(track,sharedMedia));
+ for(const track of sharedMedia.getTracks()){
+  const sender=peer.addTrack(track,sharedMedia);
+  if(track.kind==='video'&&sender?.getParameters&&sender?.setParameters){
+   try{
+    const params=sender.getParameters();
+    // Limit uplink/encoder buffering; if not supported the browser keeps its defaults.
+    params.encodings=(params.encodings?.length?params.encodings:[{}]).map(e=>({
+     ...e,maxBitrate:550_000,maxFramerate:15
+    }));
+    params.degradationPreference='maintain-framerate';
+    await sender.setParameters(params);
+   }catch{/* Parameters are optional; keep the call functional. */}
+  }
+ }
  remoteAudio=new Audio();remoteAudio.autoplay=true;remoteAudio.setAttribute('playsinline','');
  remoteAudio.style.display='none';document.body.append(remoteAudio);
  peer.ontrack=e=>{
