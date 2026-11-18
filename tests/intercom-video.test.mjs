@@ -11,8 +11,8 @@ function browserHarness(filename){
   if(!nodes.has(selector)){
    nodes.set(selector,{
     hidden:false,disabled:false,srcObject:null,textContent:'',value:'',
-    open:false,classList:{add(){},remove(){}},
-    addEventListener(){},replaceChildren(){},append(){},
+    open:false,classList:{add(){},remove(){},toggle(){}},
+    setAttribute(){},addEventListener(){},replaceChildren(){},append(){},
     play(){this.played=true;return Promise.resolve();},pause(){this.paused=true;},
     close(){this.open=false;},showModal(){this.open=true;}
    });
