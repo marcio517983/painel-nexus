@@ -59,3 +59,23 @@ test('fictional preview visitor can call without geolocation while production ne
  body:JSON.stringify({unitId:'apto-102',reason:'visita'})}),{...env,VERCEL_ENV:'production',DB:mockDB()});
  assert.equal(production.status,409,'GPS remains required when entrance is not configured in production');
 });
+
+test('realistic Vercel preview visitor POST reaches call creation despite fixed API base URL',async()=>{
+ const host='painel-nexus-nexus-k8n55hoyh-controws-iot.vercel.app';
+ // api/index.mjs uses NEXUS_ORIGIN as Request.url base but forwards the real
+ // browser Host and Origin headers from Vercel.
+ const url='https://nexus.example/api/intercom/public/interfone-piloto/calls';
+ const payload=JSON.stringify({unitId:'apto-102',reason:'visita'});
+ const fake=mockDB();
+ const req=new Request(url,{method:'POST',headers:{
+  host,origin:'https://'+host,'content-type':'application/json'
+ },body:payload});
+ const response=await intercom(req,{...config,DB:fake});
+ assert.equal(response.status,201,JSON.stringify(await response.clone().json()));
+ assert.equal(fake.calls.length,1);
+ const attack=await intercom(new Request(url,{method:'POST',headers:{
+  host,origin:'https://evil.example','content-type':'application/json'
+ },body:payload}),{...config,DB:mockDB()});
+ assert.equal(attack.status,403);
+ assert.equal((await attack.json()).message,'Origem inválida');
+});
