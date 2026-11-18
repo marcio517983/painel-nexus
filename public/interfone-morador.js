@@ -2,6 +2,7 @@ const $=s=>document.querySelector(s);
 const reasons={entrega:'Entrega ou encomenda',visita:'Visita pessoal',servico:'Prestação de serviço',outro:'Outro assunto'};
 const notice=s=>$('#notice').textContent=s;
 let profile,activeCall=null,peer=null,stream=null,currentRing=null,ringInterval=null,alertCtx=null,pollBusy=false,processing=false;
+let residentTalkEndsAt=0,residentTalkInterval=null,residentSpeakerEnabled=true;
 let inboundAudioTimer=null,lastInboundAudioBytes=0;
 const nexusNative=()=>window.Capacitor?.Plugins?.NexusCall||null;
 let lastNativeCallId=null;
@@ -67,6 +68,57 @@ function releaseNativeSpeaker(){
  const native=nexusNative();
  if(native?.releaseSpeaker)native.releaseSpeaker().catch(()=>{});
 }
+function stopResidentTimer(){
+ if(residentTalkInterval!==null){clearInterval(residentTalkInterval);residentTalkInterval=null;}
+ residentTalkEndsAt=0;
+}
+function updateResidentTimer(){
+ if(!activeCall||!residentTalkEndsAt)return;
+ const remain=Math.max(0,residentTalkEndsAt-Math.floor(Date.now()/1000));
+ const clock=$('#resident-talk-clock');
+ clock.textContent=String(Math.floor(remain/60)).padStart(2,'0')+':'+String(remain%60).padStart(2,'0');
+ clock.classList.toggle('warning',remain<=15);
+ if(remain===0)hangup('limit');
+}
+function startResidentTimer(expires){
+ stopResidentTimer();
+ residentTalkEndsAt=Number(expires)||0;
+ if(!residentTalkEndsAt)return;
+ updateResidentTimer();
+ residentTalkInterval=setInterval(updateResidentTimer,1000);
+}
+function resetResidentControls(){
+ $('#resident-mute').textContent='🎙️ Silenciar microfone';
+ $('#resident-mute').setAttribute('aria-pressed','false');
+ residentSpeakerEnabled=true;
+ const button=$('#resident-speaker');
+ button.hidden=!Boolean(nexusNative()?.preferSpeaker&&nexusNative()?.releaseSpeaker);
+ button.textContent='🔊 Viva-voz ligado';
+ button.setAttribute('aria-pressed','true');
+}
+$('#resident-mute').onclick=()=>{
+ const track=stream?.getAudioTracks()[0];
+ if(!activeCall||!track)return;
+ track.enabled=!track.enabled;
+ const muted=!track.enabled;
+ $('#resident-mute').textContent=muted?'🎙️ Reativar microfone':'🎙️ Silenciar microfone';
+ $('#resident-mute').setAttribute('aria-pressed',String(muted));
+};
+$('#resident-speaker').onclick=async()=>{
+ if(!activeCall||!nexusNative())return;
+ try{
+  if(residentSpeakerEnabled){
+   await nexusNative().releaseSpeaker();
+   residentSpeakerEnabled=false;
+  }else{
+   const result=await nexusNative().preferSpeaker();
+   if(result?.selected===false)throw Error('O Android não selecionou o alto-falante.');
+   residentSpeakerEnabled=true;
+  }
+  $('#resident-speaker').textContent=residentSpeakerEnabled?'🔊 Viva-voz ligado':'🔈 Usar viva-voz';
+  $('#resident-speaker').setAttribute('aria-pressed',String(residentSpeakerEnabled));
+ }catch(e){notice('Não foi possível alterar a saída de áudio: '+(e.message||e));}
+};
 // Always derive the visible notification state from Android permission AND the
 // authenticated FCM device binding, not from a button click remembered locally.
 let nativeNotificationSyncing=false;
@@ -217,8 +269,10 @@ async function act(c,kind){
    localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
    // WebRTC may replace the routing decision when the microphone starts.
    await preferNativeSpeaker();
-   await post('calls/'+c.id+'/answer',{});
+   const answerResult=await post('calls/'+c.id+'/answer',{});
    stream=localStream;localStream=null;activeCall=c.id;
+   resetResidentControls();
+   startResidentTimer(answerResult.expires);
    clearPopup();dismissPush(c.id);
    $('#active-audio').hidden=false;$('#active-audio-label').textContent='Conectando a '+c.label+'...';
    resetInboundAudioDiagnostics();
@@ -315,9 +369,11 @@ async function connectAudio(id){
  const answer=await peer.createAnswer();await peer.setLocalDescription(answer);await completeIce(peer);
  await post('calls/'+id+'/signal',peer.localDescription);
 }
-async function hangup(){
- resetInboundAudioDiagnostics();
+async function hangup(reason='manual'){
  const id=activeCall;
+ if(!id)return;
+ stopResidentTimer();
+ resetInboundAudioDiagnostics();
  activeCall=null;peer?.close();peer=null;
  stream?.getTracks().forEach(t=>t.stop());stream=null;
  releaseNativeSpeaker();
@@ -325,16 +381,23 @@ async function hangup(){
  const remoteVideo=$('#remote-video');remoteVideo.pause();remoteVideo.srcObject=null;remoteVideo.hidden=true;
  $('#video-status').textContent='Vídeo encerrado.';
  $('#active-audio').hidden=true;
- if(id)await post('calls/'+id+'/hangup',{}).catch(()=>{});
- notice('Chamada encerrada.');refresh();
+ resetResidentControls();
+ // Server independently expires the conversation after 90 seconds.
+ await post('calls/'+id+'/hangup',{}).catch(()=>{});
+ notice(reason==='limit'?'Tempo máximo de 1 minuto e 30 segundos atingido.':reason==='remote'?'O visitante encerrou a chamada.':'Chamada encerrada.');
+ refresh();
 }
-$('#hangup').onclick=hangup;
+$('#hangup').onclick=()=>hangup('manual');
 window.addEventListener('pagehide',releaseNativeSpeaker);
 async function syncActiveCall(){
  if(!activeCall)return;
  try{
   const c=await req('calls/'+activeCall+'/status');
-  if(c.status!=='answered')await hangup();
+  if(c.status!=='answered'){
+   await hangup(residentTalkEndsAt&&Date.now()/1000>=residentTalkEndsAt?'limit':'remote');
+   return;
+  }
+  if(Number.isFinite(Number(c.expires))&&c.expires>0&&c.expires!==residentTalkEndsAt)startResidentTimer(c.expires);
  }catch{ /* falha temporária; não desligar sem confirmação */ }
 }
 function decodeKey(base64url){
