@@ -8,6 +8,14 @@
 #notification-help button{margin:8px 0}
 #active-audio{border:1px solid #237958;background:#102b28;border-radius:12px;padding:18px;margin:16px 0}
 #remote-video{width:100%;max-height:65vh;aspect-ratio:16/9;object-fit:contain;background:#020a11;border-radius:12px;margin:12px 0}#remote-video[hidden]{display:none}#video-status{font-size:14px;color:#bde1f5}
+#active-audio .call-timer{font-size:30px;font-weight:850;letter-spacing:.04em;text-align:center;color:#b9efce;margin:10px auto 4px}
+#active-audio .call-timer.warning{color:#ffc09b}
+#active-audio .call-limit{text-align:center;color:#b0c8cb;font-size:13px}
+#active-audio .call-tools{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+#active-audio .call-tools button{min-height:58px;padding:10px 7px;font-size:14px;margin:0}
+#active-audio .call-tools [aria-pressed=true]{background:#8c4e2a}
+#active-audio #hangup{width:100%;min-height:54px;margin-top:8px}
+#active-audio [hidden]{display:none}
 @keyframes ringicon{0%,100%{transform:rotate(0deg)}20%{transform:rotate(15deg)}40%{transform:rotate(-15deg)}60%{transform:rotate(8deg)}80%{transform:rotate(-8deg)}}
 @media(prefers-reduced-motion:reduce){.intercom-modal .bell{animation:none}}
 </style><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#132c46"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="NexusMaster"><link rel="apple-touch-icon" href="/icons/nexusmaster-192.png"><link rel="icon" type="image/png" sizes="192x192" href="/icons/nexusmaster-192.png"></head><body><main><header><a href="/" class="brand">⌘ NEXUSMASTER</a></header><h1>Central de interfone</h1><button type="button" data-pwa-install hidden>Instalar NexusMaster</button><p><a href="/morador.html">Voltar aos meus acessos</a></p><p id="intercom-description">Atenda às chamadas da sua residência no navegador. Mantenha esta página aberta durante o piloto.</p><p id="notice" role="status" aria-live="polite"></p>
@@ -25,10 +33,11 @@
 <p class="muted">Depois de autorizar, atualize a página do visitante no notebook. Mantenha ambos no mesmo Wi-Fi e desative VPN/dados móveis durante o teste.</p>
 </section>
 <section id="active-audio" hidden>
-<h2>📹 Videoporteiro</h2><p id="active-audio-label">Interfone conectado ao visitante</p><p id="video-status" role="status">Verificando se a portaria está enviando vídeo...</p><video id="remote-video" autoplay muted playsinline hidden aria-label="Vídeo ao vivo da portaria"></video>
+<h2>📹 Videoporteiro</h2><p id="active-audio-label">Interfone conectado ao visitante</p><p id="resident-talk-clock" class="call-timer" role="timer">01:30</p><p class="call-limit">A ligação termina automaticamente após 1 min 30 s.</p><p id="video-status" role="status">Verificando se a portaria está enviando vídeo...</p><video id="remote-video" autoplay muted playsinline hidden aria-label="Vídeo ao vivo da portaria"></video>
 <p id="visitor-audio-status" role="status">Aguardando áudio do visitante...</p>
+<div class="call-tools"><button id="resident-mute" type="button" aria-pressed="false">🎙️ Silenciar microfone</button><button id="resident-speaker" type="button" aria-pressed="true" hidden>🔊 Viva-voz ligado</button></div>
 <button id="enable-visitor-audio" type="button" hidden>🔊 Ouvir visitante</button>
-<button class="danger" id="hangup" type="button">Desligar</button>
+<button class="danger" id="hangup" type="button">📵 Encerrar chamada</button>
 <audio id="remote-audio" autoplay playsinline></audio>
 </section><section><h2>Chamadas recebidas</h2><div id="calls">Consultando...</div></section><dialog id="incoming-dialog" class="intercom-modal" aria-labelledby="incoming-title">
 <div class="bell" aria-hidden="true">📞</div>
@@ -41,4 +50,4 @@
 <button id="incoming-answer" class="accept" type="button">Atender</button>
 </div>
 </dialog>
-<section id="setup" hidden><h2>Configurar residências (síndico)</h2><p><a href="/interfone-localizacao.html">Definir ponto da portaria e trava GPS de 20 metros</a></p><label>Código interno <input id="unitId" placeholder="ex.: apto-102" maxlength="64"></label><label>Nome exibido ao visitante<input id="unitLabel" placeholder="Apartamento 102" maxlength="55"></label><button id="addUnit">Cadastrar residência</button><label>Residências cadastradas<select id="units"></select></label><label>ID do morador cadastrado no NexusMaster<input id="userId" placeholder="ID do usuário" maxlength="64"></label><button id="addMember">Vincular morador</button><p class="muted">O síndico obtém o ID do morador no cadastro existente do painel Master. O QR Code deverá apontar para <code id="qrurl"></code>.</p></section><p class="muted">Ao atender, o NexusMaster solicita acesso ao microfone e inicia a ligação. Nenhum portão é acionado automaticamente.</p></main><script type="module" src="/interfone-morador.js"></script><script src="/pwa.js" defer></script></body></html>
+<section id="setup" hidden><h2>Configurar residências (síndico)</h2><p class="muted">A configuração GPS e a liberação futura de portões pelo videoporteiro ficarão reservadas ao Master.</p><label>Código interno <input id="unitId" placeholder="ex.: apto-102" maxlength="64"></label><label>Nome exibido ao visitante<input id="unitLabel" placeholder="Apartamento 102" maxlength="55"></label><button id="addUnit">Cadastrar residência</button><label>Residências cadastradas<select id="units"></select></label><label>ID do morador cadastrado no NexusMaster<input id="userId" placeholder="ID do usuário" maxlength="64"></label><button id="addMember">Vincular morador</button><p class="muted">O síndico obtém o ID do morador no cadastro existente do painel Master. O QR Code deverá apontar para <code id="qrurl"></code>.</p></section><p class="muted">Ao atender, o NexusMaster solicita acesso ao microfone e inicia a ligação. Nenhum portão pode ser acionado por esta tela nesta etapa.</p></main><script type="module" src="/interfone-morador.js"></script><script src="/pwa.js" defer></script></body></html>
