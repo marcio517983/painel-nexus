@@ -5,6 +5,7 @@ import {endpointHash,validSubscription,pushConfigured,sendWebPush} from './inter
 import {fcmTokenHash,validFcmToken,fcmConfigured,sendFcmCall} from './intercom-fcm.mjs';
 import {validLatLon,validateIntercomPosition,INTERCOM_RADIUS_METERS,INTERCOM_MAX_ACCURACY_METERS,INTERCOM_MAX_POSITION_AGE_MS} from './intercom-geofence.mjs';
 import {pilotNetworkStatus,authorizePilotNetwork,revokePilotNetwork,isPilotNetworkEnv} from './intercom-pilot-network.mjs';
+import {pilotGpsBypass} from './intercom-pilot-gps.mjs';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const digest=s=>createHash('sha256').update(String(s)).digest('hex');
@@ -77,8 +78,10 @@ export async function intercom(r,env){
    if(p[2]==='units'&&method==='GET'){
     const entrance=await query(env,'SELECT enabled FROM intercom_entrances WHERE client_id=?',cid).first();
     const pilot=await pilotNetworkStatus(env,cid,r);
+    const gpsPilot=pilotGpsBypass(env,cid);
     return json({name:JSON.parse(client.data).name,units:await units(env,cid),
-      radiusMeters:INTERCOM_RADIUS_METERS,locationRequired:true,locationReady:!!entrance&&Number(entrance.enabled)===1,
+      radiusMeters:INTERCOM_RADIUS_METERS,locationRequired:!gpsPilot.enabled,locationReady:!!entrance&&Number(entrance.enabled)===1,
+      pilotGpsTestEnabled:gpsPilot.enabled,pilotGpsTestExpiresAt:gpsPilot.expiresAt,
       pilotNetworkTestSupported:pilot.supported,pilotNetworkTestAllowed:pilot.allowed,pilotNetworkTestExpiresAt:pilot.expiresAt});
    }
    if(p[2]==='calls'&&p.length===3&&method==='POST'){
@@ -86,10 +89,11 @@ export async function intercom(r,env){
     if(!/^[a-zA-Z0-9_-]{1,64}$/.test(unitId)||!['entrega','visita','servico','outro'].includes(reason))return json({message:'Escolha uma unidade e o motivo'},400);
     // Preview-only and explicitly selected: resident authorized this SAME outgoing
     // public IP temporarily. Never treat IP matching as proof of proximity.
-    const pilot= b.pilotNetworkTest===true ? await pilotNetworkStatus(env,cid,r) : {allowed:false};
-    const usingPilot=pilot.allowed===true;
-    const entrance=await query(env,'SELECT latitude,longitude,enabled FROM intercom_entrances WHERE client_id=?',cid).first();
-    const geo=usingPilot?{ok:true,reason:'preview-network-test'}:validateIntercomPosition(entrance,b.location);
+    const gpsPilot=pilotGpsBypass(env,cid);
+    const pilot= !gpsPilot.enabled&&b.pilotNetworkTest===true ? await pilotNetworkStatus(env,cid,r) : {allowed:false};
+    const usingPilot=gpsPilot.enabled||pilot.allowed===true;
+    const entrance=usingPilot?null:await query(env,'SELECT latitude,longitude,enabled FROM intercom_entrances WHERE client_id=?',cid).first();
+    const geo=usingPilot?{ok:true,reason:'isolated-preview-test'}:validateIntercomPosition(entrance,b.location);
     if(!geo.ok){
      const errors={
       not_configured:['A portaria ainda não cadastrou sua localização. Interfone indisponível.',409],
