@@ -21,7 +21,7 @@ test('both call screens expose countdown and media controls, and never show a ga
  for(const id of ['resident-talk-clock','resident-mute','resident-speaker','hangup'])assert.match(r,new RegExp('id="'+id+'"'));
  assert.match(visitor,/startVisitorTimer\(s.expires\)/);
  assert.match(resident,/startResidentTimer\(answerResult.expires\)/);
- assert.match(resident,/await post\('calls\/\+'\+id\+'\/hangup'/);
+ assert.ok(resident.includes("await post('calls/'+id+'/hangup'"));
  assert.doesNotMatch(r,/id="open-gate"|id="open-door"/);
 });
 test('server answer returns the authoritative deadline of a maximum 90-second call',async()=>{
