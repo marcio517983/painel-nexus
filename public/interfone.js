@@ -97,7 +97,7 @@ async function updateVideoDevices(){
   const select=$('#camera-device'),selected=select.value;
   select.replaceChildren();
   const defaultOpt=document.createElement('option');
-  defaultOpt.value='';defaultOpt.textContent='Câmera padrão do notebook';select.append(defaultOpt);
+  defaultOpt.value='';defaultOpt.textContent='Câmera padrão do celular';select.append(defaultOpt);
   for(let i=0;i<sources.length;i++){
    const option=document.createElement('option');
    option.value=sources[i].deviceId;
@@ -116,7 +116,7 @@ $('#camera-device').addEventListener('change',()=>{
 $('#camera-start').onclick=async()=>{
  const button=$('#camera-start');
  button.disabled=true;
- $('#camera-status').textContent='Solicitando acesso à câmera do notebook...';
+ $('#camera-status').textContent='Solicitando acesso à câmera deste celular...';
  try{
   if(!navigator.mediaDevices?.getUserMedia)throw Error('Este navegador não tem acesso à webcam.');
   // Balanced for 3G/4G and Android WebView: fewer frames lower encoder load and
@@ -124,6 +124,7 @@ $('#camera-start').onclick=async()=>{
   const videoSettings={width:{ideal:640,max:640},height:{ideal:360,max:360},
    frameRate:{ideal:12,max:15},resizeMode:'crop-and-scale'};
   if($('#camera-device').value)videoSettings.deviceId={exact:$('#camera-device').value};
+  else videoSettings.facingMode={ideal:'user'};
   const captured=await navigator.mediaDevices.getUserMedia({video:videoSettings,audio:false});
   if(call){captured.getTracks().forEach(t=>t.stop());throw Error('Ative a câmera antes de iniciar a chamada.');}
   cameraStream=captured;
