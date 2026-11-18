@@ -6,6 +6,7 @@ import {fcmTokenHash,validFcmToken,fcmConfigured,sendFcmCall} from './intercom-f
 import {validLatLon,validateIntercomPosition,INTERCOM_RADIUS_METERS,INTERCOM_MAX_ACCURACY_METERS,INTERCOM_MAX_POSITION_AGE_MS} from './intercom-geofence.mjs';
 import {pilotNetworkStatus,authorizePilotNetwork,revokePilotNetwork,isPilotNetworkEnv} from './intercom-pilot-network.mjs';
 import {pilotGpsBypass} from './intercom-pilot-gps.mjs';
+import {INTERCOM_TALK_MAX_SECONDS,talkExpiry} from './intercom-duration.mjs';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const digest=s=>createHash('sha256').update(String(s)).digest('hex');
@@ -258,7 +259,7 @@ export async function intercom(r,env){
   if(p[0]==='calls'&&p[1]&&p[2]==='status'&&method==='GET'){
    const c=await active(env,p[1]);
    if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id))return json({message:'Chamada não autorizada'},403);
-   return json({status:c.status,expires:c.expires});
+   return json({status:c.status,expires:c.expires,maxTalkSeconds:INTERCOM_TALK_MAX_SECONDS});
   }
   if(p[0]==='calls'&&p[1]&&p[2]==='signal'&&method==='GET'){
    const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id)||c.status!=='answered'||c.answered_by!==u.id)return json({message:'Chamada não autorizada'},403);
@@ -276,8 +277,9 @@ export async function intercom(r,env){
   }
   if(p[0]==='calls'&&p[1]&&p[2]==='answer'&&method==='POST'){
    const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id))return json({message:'Chamada não autorizada'},403);
-   const result=await query(env,"UPDATE intercom_calls SET status='answered',answered_at=?,answered_by=?,expires=? WHERE id=? AND status='ringing' AND expires>? RETURNING id",now(),u.id,now()+300,c.id,now()).first();
-   return result?json({ok:true,status:'answered'}):json({message:'Chamada encerrada ou já atendida'},409);
+   const answeredAt=now(),expires=talkExpiry(answeredAt);
+   const result=await query(env,"UPDATE intercom_calls SET status='answered',answered_at=?,answered_by=?,expires=? WHERE id=? AND status='ringing' AND expires>? RETURNING id",answeredAt,u.id,expires,c.id,answeredAt).first();
+   return result?json({ok:true,status:'answered',expires,maxTalkSeconds:INTERCOM_TALK_MAX_SECONDS}):json({message:'Chamada encerrada ou já atendida'},409);
   }
   if(p[0]==='calls'&&p[1]&&p[2]==='decline'&&method==='POST'){
    const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id))return json({message:'Chamada não autorizada'},403);
