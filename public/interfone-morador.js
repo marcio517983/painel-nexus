@@ -512,6 +512,7 @@ async function setup(){
 // When returning from Android notification settings, refresh the visible status.
 document.addEventListener('visibilitychange',()=>{
  if(!document.hidden&&validUser()&&nexusNative())syncNativeNotificationUi();
+ if(!document.hidden&&activeCall){updateResidentTimer();if(activeCall)syncActiveCall();}
 });
 window.addEventListener('focus',()=>{
  if(validUser()&&nexusNative())syncNativeNotificationUi();
