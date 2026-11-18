@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s),cid=new URLSearchParams(location.search).get('central');
-let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false,networkTestAllowed=false;
+let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false,networkTestAllowed=false,gpsPilotAllowed=false;
 let cameraStream=null,remoteAudio=null;
 const reasons={entrega:'Entrega',visita:'Visita',servico:'Serviço',outro:'Outro'};
 
@@ -179,28 +179,36 @@ if(!cid){
  for(const u of d.units){const opt=document.createElement('option');opt.value=u.id;opt.textContent=u.label;$('#unit').append(opt);}
  locationReady=d.locationReady===true;
  networkTestAllowed=d.pilotNetworkTestAllowed===true;
- $('#call').disabled=!d.units.length||!(locationReady||networkTestAllowed);
- if(d.pilotNetworkTestSupported===true){
+ gpsPilotAllowed=d.pilotGpsTestEnabled===true;
+ $('#call').disabled=!d.units.length||!(locationReady||networkTestAllowed||gpsPilotAllowed);
+ if(d.pilotNetworkTestSupported===true||gpsPilotAllowed){
   $('#camera-test').hidden=false;
  }
- if(networkTestAllowed){
-  $('#location-explainer').textContent='MODO DE TESTE • Seu notebook está usando a mesma saída de internet autorizada pelo morador. O GPS de 20 m está dispensado somente neste piloto e por tempo limitado.';
+ if(gpsPilotAllowed){
+  const expiration=d.pilotGpsTestExpiresAt?new Date(d.pilotGpsTestExpiresAt*1000).toLocaleString('pt-BR'):'temporariamente';
+  $('#location-explainer').textContent='MODO DE TESTE • GPS temporariamente desativado somente no condomínio piloto até '+expiration+'. O QR Code não comprova presença física. Não use para acionar portões.';
+  $('#call').textContent='☎ Chamar residência (teste sem GPS)';
+  setNotice('Ambiente piloto: chamadas liberadas sem GPS para testar entre celulares.');
+ }else if(networkTestAllowed){
+  $('#location-explainer').textContent='MODO DE TESTE • Você está usando a mesma saída de internet autorizada pelo morador. GPS dispensado somente neste piloto e por tempo limitado.';
   $('#call').textContent='☎ Chamar (teste na mesma rede)';
-  setNotice('Modo de teste liberado. Não é uma comprovação de proximidade física.');
+  setNotice('Modo de teste liberado. Não é comprovação de presença física.');
  }else if(!locationReady){
   setNotice(d.pilotNetworkTestSupported?
-   'Interfone bloqueado: no celular do morador, abra a Central de Interfone e ative o teste na mesma rede. Depois recarregue esta página no notebook.':
+   'Interfone bloqueado: no celular do morador, abra a Central de Interfone e ative o teste na mesma rede. Depois recarregue esta página.':
    'Interfone bloqueado: a administração precisa cadastrar a localização da portaria.');
  }else if(!d.units.length)setNotice('Nenhuma residência disponível no momento.');
 }).catch(e=>setNotice(e.message));
 $('#call').onclick=async()=>{
  if(!$('#unit').value)return setNotice('Selecione uma residência.');
- if(!locationReady&&!networkTestAllowed)return setNotice('GPS da portaria não configurado. Autorize o teste na rede do morador.');
+ if(!locationReady&&!networkTestAllowed&&!gpsPilotAllowed)return setNotice('GPS da portaria não configurado. Autorize o teste na rede do morador.');
  $('#call').disabled=true;
  try{
   ctx=new(window.AudioContext||window.webkitAudioContext)();await ctx.resume();
   const body={unitId:$('#unit').value,reason:$('#reason').value};
-  if(networkTestAllowed){
+  if(gpsPilotAllowed){
+   setNotice('Conectando no condomínio piloto (sem exigência de GPS)...');
+  }else if(networkTestAllowed){
    setNotice('Verificando autorização temporária da rede de testes...');
    body.pilotNetworkTest=true;
   }else{
