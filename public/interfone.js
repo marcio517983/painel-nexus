@@ -1,6 +1,7 @@
 const $=s=>document.querySelector(s),cid=new URLSearchParams(location.search).get('central');
 let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false,networkTestAllowed=false,gpsPilotAllowed=false;
 let cameraStream=null,remoteAudio=null;
+let visitorTalkEndsAt=0,visitorCameraFront=true,visitorTimer=null;
 const reasons={entrega:'Entrega',visita:'Visita',servico:'Serviço',outro:'Outro'};
 
 let stopMicMonitoring=null;
@@ -75,6 +76,82 @@ function watchLiveMic(audioStream){
 }
 window.addEventListener('load',listMicrophones);
 
+
+function resetVisitorTimer(){
+ if(visitorTimer!==null){clearInterval(visitorTimer);visitorTimer=null;}
+ visitorTalkEndsAt=0;
+}
+function updateVisitorTimer(){
+ if(!call||!visitorTalkEndsAt)return;
+ const remain=Math.max(0,visitorTalkEndsAt-Math.floor(Date.now()/1000));
+ const clock=$('#talk-clock');
+ clock.textContent=String(Math.floor(remain/60)).padStart(2,'0')+':'+String(remain%60).padStart(2,'0');
+ clock.classList.toggle('time-low',remain<=15);
+ if(remain===0)done('limit');
+}
+function startVisitorTimer(expires){
+ const next=Number(expires)||0;
+ if(!next||next===visitorTalkEndsAt)return;
+ resetVisitorTimer();
+ visitorTalkEndsAt=next;
+ $('#clock').hidden=true;
+ $('#talk-clock').hidden=false;
+ $('#talk-time-note').hidden=false;
+ $('#visitor-controls').hidden=false;
+ const hasVideo=Boolean(peer?.getSenders?.().some(sender=>sender.track?.kind==='video'))||cameraActive();
+ $('#visitor-camera').disabled=!hasVideo;
+ $('#visitor-flip').disabled=!hasVideo;
+ updateVisitorTimer();
+ visitorTimer=setInterval(updateVisitorTimer,1000);
+}
+function resetVisitorControls(){
+ $('#visitor-controls').hidden=true;
+ $('#visitor-mute').textContent='🎙️ Silenciar microfone';
+ $('#visitor-mute').setAttribute('aria-pressed','false');
+ $('#visitor-camera').textContent='📷 Ocultar imagem';
+ $('#visitor-camera').setAttribute('aria-pressed','false');
+}
+$('#visitor-mute').onclick=()=>{
+ const mic=stream?.getAudioTracks()[0];
+ if(!call||!mic)return;
+ mic.enabled=!mic.enabled;
+ const muted=!mic.enabled;
+ $('#visitor-mute').textContent=muted?'🎙️ Reativar microfone':'🎙️ Silenciar microfone';
+ $('#visitor-mute').setAttribute('aria-pressed',String(muted));
+};
+$('#visitor-camera').onclick=()=>{
+ const track=cameraStream?.getVideoTracks()[0];
+ if(!call||!track||track.readyState!=='live')return;
+ track.enabled=!track.enabled;
+ const hidden=!track.enabled;
+ $('#visitor-camera').textContent=hidden?'📷 Mostrar imagem':'📷 Ocultar imagem';
+ $('#visitor-camera').setAttribute('aria-pressed',String(hidden));
+ $('#calling-video-status').textContent=hidden?'📷 Imagem ocultada para o morador.':'📷 Câmera transmitindo ao morador.';
+};
+$('#visitor-flip').onclick=async()=>{
+ const oldTrack=cameraStream?.getVideoTracks()[0];
+ const sender=peer?.getSenders?.().find(s=>s.track?.kind==='video');
+ if(!call||!oldTrack||!sender)return setNotice('Para alternar a câmera, ative o vídeo antes de iniciar a chamada.');
+ const button=$('#visitor-flip');button.disabled=true;
+ let next=null;
+ try{
+  const nextFront=!visitorCameraFront;
+  next=await navigator.mediaDevices.getUserMedia({audio:false,video:{
+   facingMode:{ideal:nextFront?'user':'environment'},
+   width:{ideal:640,max:640},height:{ideal:360,max:360},frameRate:{ideal:12,max:15}
+  }});
+  if(!call||peer?.signalingState==='closed')throw Error('A chamada foi encerrada.');
+  const track=next.getVideoTracks()[0];
+  track.enabled=oldTrack.enabled;
+  await sender.replaceTrack(track);
+  cameraStream?.getTracks().forEach(t=>t.stop());
+  cameraStream=next;next=null;visitorCameraFront=nextFront;
+  setNotice('Câmera alternada.');
+ }catch(e){
+  next?.getTracks().forEach(t=>t.stop());
+  setNotice('Não foi possível alternar a câmera: '+(e.message||e));
+ }finally{button.disabled=false;}
+};
 const setNotice=s=>$('#notice').textContent=s;
 /** The laptop webcam is a temporary portaria camera for this Preview pilot.
  * Never start capture silently; the visitor must click the explicit button.
@@ -154,8 +231,13 @@ window.addEventListener('pagehide',()=>{
 async function api(path,options={}){const r=await fetch('/api/intercom/public/'+encodeURIComponent(cid)+'/'+path,{cache:'no-store',...options});const b=await r.json();if(!r.ok){const wait=Number(b.retryAfterSeconds);const explanation=Number.isFinite(wait)&&wait>0?' Tente novamente em cerca de '+Math.ceil(wait/60)+' minuto(s).':'';throw Error((b.message||'Falha de comunicação')+explanation);}return b;}
 function tone(frequency,duration){if(!ctx)return;const oscillator=ctx.createOscillator(),g=ctx.createGain();oscillator.type='sine';oscillator.frequency.value=frequency;g.gain.value=0.055;oscillator.connect(g).connect(ctx.destination);oscillator.start();oscillator.stop(ctx.currentTime+duration); }
 function ring(){if(!ctx)return;const elapsed=(Date.now()-started)/1000;if(elapsed%6<1.8){tone(425,.32);setTimeout(()=>{if(call)tone(425,.32)},520);}}
-function done(status){stopLiveMic();peer?.close();peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;remoteAudio?.remove();remoteAudio=null;stopCamera();audioStarted=false;clearInterval(timer);timer=null;call=null;secret='';const map={answered:['Chamada atendida','Conectando áudio com o morador...'],declined:['Ocupado','O morador não pôde atender.'],missed:['Não atendida','O tempo de chamada terminou.'],ended:['Chamada encerrada','A chamada foi encerrada.']};const [title,message]=map[status]||['Chamada encerrada','Tente novamente mais tarde.'];$('#title').textContent=title;$('#sub').textContent=message;$('#clock').textContent='';$('#symbol').textContent='✕';$('#cancel').textContent='Nova chamada';$('#cancel').onclick=()=>location.reload();if(['missed','declined'].includes(status)){tone(480,.25);setTimeout(()=>tone(480,.25),480);setTimeout(()=>tone(480,.25),960);}}
-async function poll(){if(!call)return;try{const s=await api('calls/'+call,{headers:{Authorization:'Bearer '+secret}});if(s.status==='answered'){if(!audioStarted){audioStarted=true;$('#title').textContent='Chamada atendida';$('#sub').textContent='Conectando áudio com o morador...';startAudio().catch(e=>{setNotice('Não foi possível transmitir o microfone: '+e.message);offerMicRetry();});}return;}if(s.status!=='ringing'){done(s.status);return;}const seconds=Math.max(0,s.expires-Math.floor(Date.now()/1000));$('#clock').textContent='00:'+String(seconds).padStart(2,'0');if(!seconds){done('missed');return;}ring();}catch(e){setNotice('Conexão instável. Verificando chamada...');}}
+function done(status){resetVisitorTimer();resetVisitorControls();stopLiveMic();peer?.close();peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;remoteAudio?.remove();remoteAudio=null;stopCamera();audioStarted=false;clearInterval(timer);timer=null;call=null;secret='';const map={answered:['Chamada atendida','Conectando áudio com o morador...'],declined:['Ocupado','O morador não pôde atender.'],missed:['Não atendida','O tempo de chamada terminou.'],ended:['Chamada encerrada','A chamada foi encerrada.'],limit:['Tempo encerrado','Limite de 1 minuto e 30 segundos atingido.']};const [title,message]=map[status]||['Chamada encerrada','Tente novamente mais tarde.'];$('#title').textContent=title;$('#sub').textContent=message;$('#clock').textContent='';$('#talk-clock').hidden=true;$('#talk-time-note').hidden=true;$('#symbol').textContent='✕';$('#cancel').textContent='Nova chamada';$('#cancel').onclick=()=>location.reload();if(['missed','declined'].includes(status)){tone(480,.25);setTimeout(()=>tone(480,.25),480);setTimeout(()=>tone(480,.25),960);}}
+async function poll(){if(!call)return;try{const s=await api('calls/'+call,{headers:{Authorization:'Bearer '+secret}});if(s.status==='answered'){
+ startVisitorTimer(s.expires);
+ if(!audioStarted){audioStarted=true;$('#title').textContent='Chamada atendida';$('#sub').textContent='Conectando áudio com o morador...';startAudio().catch(e=>{setNotice('Não foi possível transmitir o microfone: '+e.message);offerMicRetry();});}
+ return;
+}if(s.status!=='ringing'){done(visitorTalkEndsAt&&Date.now()/1000>=visitorTalkEndsAt?'limit':s.status);return;}
+const seconds=Math.max(0,s.expires-Math.floor(Date.now()/1000));$('#clock').textContent='00:'+String(seconds).padStart(2,'0');if(!seconds){done('missed');return;}ring();}catch(e){setNotice('Conexão instável. Verificando chamada...');}}
 function freshVisitorLocation(){
  return new Promise((resolve,reject)=>{
   if(!window.isSecureContext||!navigator.geolocation){reject(Error('Este navegador não disponibiliza GPS seguro. Abra o QR Code pelo navegador HTTPS do celular.'));return;}
@@ -220,6 +302,7 @@ $('#call').onclick=async()=>{
   const s=await api('calls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   setNotice('');call=s.callId;secret=s.callToken;started=Date.now();
   $('#start').classList.add('hidden');$('#calling').classList.remove('hidden');
+  $('#microphone-test').hidden=true;$('#clock').hidden=false;
   if(cameraActive())$('#calling-video-status').hidden=false;
   $('#cancel').onclick=async()=>{
    try{await api('calls/'+call+'/cancel',{method:'POST',headers:{Authorization:'Bearer '+secret}});}catch{}
@@ -253,6 +336,7 @@ async function startAudio(){
  if(!call)return;
  const id=call,authorization={Authorization:'Bearer '+secret};
  stream=await navigator.mediaDevices.getUserMedia({audio:microphoneConstraints(),video:false});
+ $('#visitor-mute').disabled=false;
  watchLiveMic(stream);
  if(call!==id){stream.getTracks().forEach(t=>t.stop());stream=null;return;}
  peer=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
