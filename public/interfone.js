@@ -71,7 +71,7 @@ function watchLiveMic(audioStream){
  if(!ctx)return;
  const status=$('#microphone-live-status');
  stopMicMonitoring=audioMeter(audioStream,ctx,level=>{
-  status.textContent=level>0.018?'🎙️ Seu microfone está captando voz.':'🎙️ Microfone ativo, mas não detectamos sua voz. Verifique a entrada e fale mais perto.';
+  status.textContent=audioStream.getAudioTracks().some(t=>t.enabled===false)?'🎙️ Microfone silenciado.':level>0.018?'🎙️ Seu microfone está captando voz.':'🎙️ Microfone ativo, mas não detectamos sua voz. Verifique a entrada e fale mais perto.';
  });
 }
 window.addEventListener('load',listMicrophones);
@@ -106,6 +106,7 @@ function startVisitorTimer(expires){
 }
 function resetVisitorControls(){
  $('#visitor-controls').hidden=true;
+ $('#visitor-mute').disabled=true;
  $('#visitor-mute').textContent='🎙️ Silenciar microfone';
  $('#visitor-mute').setAttribute('aria-pressed','false');
  $('#visitor-camera').textContent='📷 Ocultar imagem';
@@ -205,6 +206,7 @@ $('#camera-start').onclick=async()=>{
   const captured=await navigator.mediaDevices.getUserMedia({video:videoSettings,audio:false});
   if(call){captured.getTracks().forEach(t=>t.stop());throw Error('Ative a câmera antes de iniciar a chamada.');}
   cameraStream=captured;
+  visitorCameraFront=cameraStream.getVideoTracks()[0]?.getSettings?.().facingMode!=='environment';
   for(const track of cameraStream.getVideoTracks()){
    if('contentHint' in track)track.contentHint='motion';
   }
@@ -222,6 +224,7 @@ $('#camera-start').onclick=async()=>{
 };
 $('#camera-stop').onclick=stopCamera;
 window.addEventListener('pagehide',()=>{
+ resetVisitorTimer();
  stopCamera();
  stopLiveMic();
  stream?.getTracks().forEach(track=>track.stop());
@@ -253,6 +256,10 @@ function freshVisitorLocation(){
   },{enableHighAccuracy:true,timeout:18000,maximumAge:0});
  });
 }
+// Enforce the absolute call deadline after the browser resumes from background.
+document.addEventListener('visibilitychange',()=>{
+ if(!document.hidden&&call){updateVisitorTimer();if(call)poll();}
+});
 // Same-network mode is an explicit, temporary Preview-only test, not a geofence.
 if(!cid){
  setNotice('QR Code inválido: condomínio não identificado.');
