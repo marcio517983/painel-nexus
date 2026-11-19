@@ -4,6 +4,7 @@ const visitorDiag=window.NexusCallDiagnostics?.create('visitante','#visitor-diag
 
 let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false,networkTestAllowed=false,gpsPilotAllowed=false;
 let cameraStream=null,remoteAudio=null;
+let visitorRestartInFlight=false,visitorRestartLastAt=0;
 let visitorUnitsAvailable=false;
 let visitorTalkEndsAt=0,visitorTimer=null;
 let visitorConnectionGraceTimer=null,visitorConnectionTicker=null,visitorConnectionDeadline=0;
@@ -294,7 +295,7 @@ document.addEventListener('visibilitychange',()=>{
 window.addEventListener('focus',resumeVisitorCall);
 window.addEventListener('pageshow',resumeVisitorCall);
 window.addEventListener('online',()=>{
- if(call)visitorDiag.event('internet_restaurada','navigator_online');
+ if(call){visitorDiag.event('internet_restaurada','navigator_online');void restartVisitorIce();}
  resumeVisitorCall();
 });
 window.addEventListener('offline',()=>{
@@ -428,6 +429,7 @@ async function startAudio(){
    $('#title').textContent='Em comunicação';$('#sub').textContent='Você está falando com o morador.';
   }else if(state==='disconnected'||state==='failed'){
    startVisitorConnectionGrace('webrtc_'+state);
+   if(navigator.onLine!==false)setTimeout(()=>{if(call===id)void restartVisitorIce();},650);
   }
  };
  const offer=await peer.createOffer();await peer.setLocalDescription(offer);await completeIce(peer);
@@ -436,6 +438,26 @@ async function startAudio(){
  throw Error('Tempo de conexão de áudio excedido');
 }
 
+async function restartVisitorIce(){
+ if(!call||!audioStarted||!peer||visitorRestartInFlight||navigator.onLine===false)return;
+ if(peer.signalingState!=='stable'||peer.connectionState==='connected')return;
+ if(Date.now()-visitorRestartLastAt<1600)return;
+ const id=call,pc=peer,authorization={Authorization:'Bearer '+secret};
+ visitorRestartInFlight=true;visitorRestartLastAt=Date.now();
+ visitorDiag.event('reinicio_ice_solicitado','troca_rede');
+ try{
+  const offer=await pc.createOffer({iceRestart:true});
+  if(call!==id||peer!==pc)return;
+  await pc.setLocalDescription(offer);await completeIce(pc);
+  await api('calls/'+id+'/offer',{method:'POST',headers:{...authorization,'Content-Type':'application/json'},body:JSON.stringify(pc.localDescription)});
+  for(let i=0;i<18&&call===id&&peer===pc;i++){
+   const result=await api('calls/'+id+'/answer',{headers:authorization});
+   if(result.sdp){await pc.setRemoteDescription(result.sdp);visitorDiag.event('renegociacao_recebida','webrtc');return;}
+   await sleep(450);
+  }
+ }catch(e){visitorDiag.event('falha_renegociacao',String(e.message||e).slice(0,90));}
+ finally{visitorRestartInFlight=false;}
+}
 function offerMicRetry(){
  const parent=$('#calling');if(!parent||!call||parent.querySelector('#retry-mic'))return;
  const button=document.createElement('button');button.id='retry-mic';button.type='button';button.textContent='Permitir microfone para conversar';
