@@ -1,7 +1,7 @@
 const $=s=>document.querySelector(s),cid=new URLSearchParams(location.search).get('central');
 let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false,networkTestAllowed=false,gpsPilotAllowed=false;
 let cameraStream=null,remoteAudio=null;
-let visitorTalkEndsAt=0,visitorCameraFront=true,visitorTimer=null;
+let visitorTalkEndsAt=0,visitorTimer=null;
 const reasons={entrega:'Entrega',visita:'Visita',servico:'Serviço',outro:'Outro'};
 
 let stopMicMonitoring=null;
@@ -98,9 +98,6 @@ function startVisitorTimer(expires){
  $('#talk-clock').hidden=false;
  $('#talk-time-note').hidden=false;
  $('#visitor-controls').hidden=false;
- const hasVideo=Boolean(peer?.getSenders?.().some(sender=>sender.track?.kind==='video'))||cameraActive();
- $('#visitor-camera').disabled=!hasVideo;
- $('#visitor-flip').disabled=!hasVideo;
  updateVisitorTimer();
  visitorTimer=setInterval(updateVisitorTimer,1000);
 }
@@ -109,8 +106,6 @@ function resetVisitorControls(){
  $('#visitor-mute').disabled=true;
  $('#visitor-mute').textContent='🎙️ Silenciar microfone';
  $('#visitor-mute').setAttribute('aria-pressed','false');
- $('#visitor-camera').textContent='📷 Ocultar imagem';
- $('#visitor-camera').setAttribute('aria-pressed','false');
 }
 $('#visitor-mute').onclick=()=>{
  const mic=stream?.getAudioTracks()[0];
@@ -120,41 +115,8 @@ $('#visitor-mute').onclick=()=>{
  $('#visitor-mute').textContent=muted?'🎙️ Reativar microfone':'🎙️ Silenciar microfone';
  $('#visitor-mute').setAttribute('aria-pressed',String(muted));
 };
-$('#visitor-camera').onclick=()=>{
- const track=cameraStream?.getVideoTracks()[0];
- if(!call||!track||track.readyState!=='live')return;
- track.enabled=!track.enabled;
- const hidden=!track.enabled;
- $('#visitor-camera').textContent=hidden?'📷 Mostrar imagem':'📷 Ocultar imagem';
- $('#visitor-camera').setAttribute('aria-pressed',String(hidden));
- $('#calling-video-status').textContent=hidden?'📷 Imagem ocultada para o morador.':'📷 Câmera transmitindo ao morador.';
-};
-$('#visitor-flip').onclick=async()=>{
- const oldTrack=cameraStream?.getVideoTracks()[0];
- const sender=peer?.getSenders?.().find(s=>s.track?.kind==='video');
- if(!call||!oldTrack||!sender)return setNotice('Para alternar a câmera, ative o vídeo antes de iniciar a chamada.');
- const button=$('#visitor-flip');button.disabled=true;
- let next=null;
- try{
-  const nextFront=!visitorCameraFront;
-  next=await navigator.mediaDevices.getUserMedia({audio:false,video:{
-   facingMode:{ideal:nextFront?'user':'environment'},
-   width:{ideal:640,max:640},height:{ideal:360,max:360},frameRate:{ideal:12,max:15}
-  }});
-  if(!call||peer?.signalingState==='closed')throw Error('A chamada foi encerrada.');
-  const track=next.getVideoTracks()[0];
-  track.enabled=oldTrack.enabled;
-  await sender.replaceTrack(track);
-  cameraStream?.getTracks().forEach(t=>t.stop());
-  cameraStream=next;next=null;visitorCameraFront=nextFront;
-  setNotice('Câmera alternada.');
- }catch(e){
-  next?.getTracks().forEach(t=>t.stop());
-  setNotice('Não foi possível alternar a câmera: '+(e.message||e));
- }finally{button.disabled=false;}
-};
 const setNotice=s=>$('#notice').textContent=s;
-/** The laptop webcam is a temporary portaria camera for this Preview pilot.
+/** The visitor phone/notebook camera is a provisional source standing in for the future dedicated IP entrance camera.
  * Never start capture silently; the visitor must click the explicit button.
  * Tracks are held locally until the resident answers the call.
  */
@@ -206,7 +168,6 @@ $('#camera-start').onclick=async()=>{
   const captured=await navigator.mediaDevices.getUserMedia({video:videoSettings,audio:false});
   if(call){captured.getTracks().forEach(t=>t.stop());throw Error('Ative a câmera antes de iniciar a chamada.');}
   cameraStream=captured;
-  visitorCameraFront=cameraStream.getVideoTracks()[0]?.getSettings?.().facingMode!=='environment';
   for(const track of cameraStream.getVideoTracks()){
    if('contentHint' in track)track.contentHint='motion';
   }
@@ -222,7 +183,9 @@ $('#camera-start').onclick=async()=>{
   button.disabled=false;
  }
 };
-$('#camera-stop').onclick=stopCamera;
+// Pre-call camera selection is allowed only for the pilot operator.
+// During the call no camera-off control is available; release tracks on hangup.
+$('#camera-stop').onclick=()=>{if(!call)stopCamera();};
 window.addEventListener('pagehide',()=>{
  resetVisitorTimer();
  stopCamera();
