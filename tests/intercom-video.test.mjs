@@ -35,13 +35,14 @@ function browserHarness(filename){
  const captures=[];
  const peerConnections=[];
  class Peer{
-  constructor(){this.iceGatheringState='complete';this.connectionState='connected';this.added=[];this.localDescription={type:'offer',sdp:'v=0'};peerConnections.push(this);}
+  constructor(){this.iceGatheringState='complete';this.connectionState='connected';this.added=[];this.transceivers=[];this.localDescription={type:'offer',sdp:'v=0'};peerConnections.push(this);}
   addTrack(track,media){this.added.push({kind:track.kind,media});}
   close(){this.closed=true;}
   async createOffer(){return {type:'offer',sdp:'v=0'};}
   async createAnswer(){return {type:'answer',sdp:'v=0'};}
   async setLocalDescription(desc){this.localDescription=desc;}
-  async setRemoteDescription(desc){this.remoteDescription=desc;}
+  async setRemoteDescription(desc){this.remoteDescription=desc;this.transceivers=desc.sdp?.includes('m=video')?[{receiver:{track:new Track('video')},direction:'recvonly'}]:[];}
+  getTransceivers(){return this.transceivers;}
  }
  const remoteVideoOffer={type:'offer',sdp:'v=0\\r\\nm=video 9 UDP/TLS/RTP/SAVPF 96'};
  const ctx=createContext({
@@ -70,7 +71,7 @@ test('visitor webcam capture only starts by explicit click and adds video+audio 
  assert.equal(h.captures.length,1);
  assert.equal(h.captures[0].audio,false);
  assert.ok(h.captures[0].video);
- assert.equal(h.element('#camera-status').textContent.includes('Câmera pronta.'),true);
+ assert.equal(h.element('#camera-status').textContent.includes('Câmera pronta'),true);
  runInContext('call="123"; secret="test-call-token";',h.ctx);
  await runInContext('startAudio()',h.ctx);
  const peer=h.peerConnections.at(-1);
@@ -116,10 +117,38 @@ test('resident displays remote video while audio still uses its own element',asy
  assert.equal(h.element('#remote-video').hidden,true);
 });
 
+test('resident audio-only rejects video in WebRTC answer and never shows visitor video',async()=>{
+ const h=browserHarness('interfone-morador.js');
+ runInContext('residentReceiveVideo=false;activeCall="abc";stream=new MediaStream([new Track("audio")]);',h.ctx);
+ await runInContext('connectAudio("abc")',h.ctx);
+ const peer=h.peerConnections.at(-1);
+ assert.ok(peer);
+ assert.deepEqual(peer.added.map(item=>item.kind),['audio'],'resident does not capture or send video');
+ assert.equal(peer.getTransceivers()[0].direction,'inactive','video must be rejected at SDP level');
+ const fakeStream=new h.MediaStream([new h.Track('video'),new h.Track('audio')]);
+ peer.ontrack({track:fakeStream.getVideoTracks()[0],streams:[fakeStream]});
+ assert.equal(h.element('#remote-video').srcObject,null);
+ assert.equal(h.element('#remote-video').hidden,true);
+ peer.ontrack({track:fakeStream.getAudioTracks()[0],streams:[fakeStream]});
+ assert.equal(h.element('#remote-audio').srcObject.getAudioTracks().length,1);
+ assert.equal(h.element('#remote-audio').played,true);
+});
+
+test('visitor cannot turn camera off during a live test call',async()=>{
+ const h=browserHarness('interfone.js');
+ await h.element('#camera-start').onclick();
+ runInContext('call="abc";',h.ctx);
+ h.element('#camera-stop').onclick();
+ assert.equal(h.webcam.getVideoTracks()[0].readyState,'live');
+ assert.equal(h.element('#camera-status').textContent.includes('Câmera pronta'),true);
+});
+
 test('videoporteiro markup includes distinct camera capture and resident playback controls',()=>{
  const visitor=readFileSync(new URL('../public/interfone.html',import.meta.url),'utf8');
  const resident=readFileSync(new URL('../public/interfone-morador.html',import.meta.url),'utf8');
  for(const id of ['camera-device','camera-start','camera-stop','camera-status','calling-video-status'])assert.match(visitor,new RegExp('id="'+id+'"'));
+ assert.doesNotMatch(visitor,/id="visitor-camera"|id="visitor-flip"/);
+ assert.match(resident,/id="incoming-answer-audio"/);
  // Visitor cannot see the captured camera even during an active call.
  assert.doesNotMatch(visitor,/<video\b/i);
  assert.doesNotMatch(visitor,/id="camera-preview"|id="calling-video"/);
