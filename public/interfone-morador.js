@@ -3,6 +3,22 @@ const reasons={entrega:'Entrega ou encomenda',visita:'Visita pessoal',servico:'P
 const notice=s=>$('#notice').textContent=s;
 let profile,activeCall=null,peer=null,stream=null,currentRing=null,ringInterval=null,alertCtx=null,pollBusy=false,processing=false;
 let residentTalkEndsAt=0,residentTalkInterval=null,residentSpeakerEnabled=true;
+let residentConnectionGraceTimer=null;
+const RESIDENT_RECONNECT_GRACE_MS=15000;
+function clearResidentConnectionGrace(){
+ if(residentConnectionGraceTimer!==null){clearTimeout(residentConnectionGraceTimer);residentConnectionGraceTimer=null;}
+}
+function startResidentConnectionGrace(){
+ if(!activeCall||residentConnectionGraceTimer!==null)return;
+ const id=activeCall;
+ notice('Conexão interrompida. Tentando recuperar o áudio e vídeo por até 15 segundos...');
+ residentConnectionGraceTimer=setTimeout(()=>{
+  residentConnectionGraceTimer=null;
+  if(activeCall!==id||peer?.connectionState==='connected')return;
+  hangup('network');
+ },RESIDENT_RECONNECT_GRACE_MS);
+}
+
 let residentReceiveVideo=true;
 let inboundAudioTimer=null,lastInboundAudioBytes=0;
 const nexusNative=()=>window.Capacitor?.Plugins?.NexusCall||null;
@@ -403,9 +419,17 @@ async function connectAudio(id){
    event.track.addEventListener('ended',()=>showAudioUnlock('O microfone do visitante parou de transmitir. Peça para ele verificar o notebook.'),{once:true});
   }
  };
+ const currentPeer=peer;
  peer.onconnectionstatechange=()=>{
-  if(peer?.connectionState==='connected'){$('#active-audio-label').textContent='Em comunicação';notice('Áudio conectado.');}
-  if(['failed','disconnected'].includes(peer?.connectionState||''))notice('A comunicação ficou instável. Confira sua conexão.');
+  if(activeCall!==id||peer!==currentPeer)return;
+  const state=currentPeer.connectionState;
+  if(state==='connected'){
+   clearResidentConnectionGrace();
+   $('#active-audio-label').textContent='Em comunicação';
+   notice('Áudio conectado.');
+  }else if(state==='failed'||state==='disconnected'){
+   startResidentConnectionGrace();
+  }
  };
  let offer=null;
  // Fast negotiation while the call is active. A short poll interval improves
@@ -432,6 +456,7 @@ async function connectAudio(id){
 async function hangup(reason='manual'){
  const id=activeCall;
  if(!id)return;
+ clearResidentConnectionGrace();
  stopResidentTimer();
  residentReceiveVideo=true;
  resetInboundAudioDiagnostics();
@@ -445,10 +470,14 @@ async function hangup(reason='manual'){
  document.body.classList.remove('nexus-call-open');
  document.title='NexusMaster | Central de interfone';
  resetResidentControls();
- // Server independently expires the conversation after 90 seconds.
- await post('calls/'+id+'/hangup',{}).catch(()=>{});
- notice(reason==='limit'?'Tempo máximo de 1 minuto e 30 segundos atingido.':reason==='remote'?'O visitante encerrou a chamada.':'Chamada encerrada.');
- refresh();
+ // Restore the UI immediately, even if the network is unavailable and
+ // the best-effort hangup request takes a long time to complete.
+ notice(reason==='limit'?'Tempo máximo de 1 minuto e 30 segundos atingido.':
+        reason==='remote'?'O visitante encerrou a chamada.':
+        reason==='network'?'Ligação encerrada: rede indisponível por mais de 15 segundos.':'Chamada encerrada.');
+ // The authoritative server deadline will expire regardless of request success.
+ void post('calls/'+id+'/hangup',{}).catch(()=>{});
+ void refresh();
 }
 $('#hangup').onclick=()=>hangup('manual');
 window.addEventListener('pagehide',releaseNativeSpeaker);
@@ -576,14 +605,27 @@ async function setup(){
  }catch(e){notice('Não foi possível iniciar o painel: '+e.message)}
 }
 // When returning from Android notification settings, refresh the visible status.
+function resumeResidentCall(){
+ if(!activeCall)return;
+ updateResidentTimer();
+ if(!activeCall)return;
+ if(peer&&['failed','disconnected'].includes(peer.connectionState))startResidentConnectionGrace();
+ void syncActiveCall();
+}
 document.addEventListener('visibilitychange',()=>{
- if(!document.hidden&&validUser()&&nexusNative())syncNativeNotificationUi();
- if(!document.hidden&&activeCall){updateResidentTimer();if(activeCall)syncActiveCall();}
+ if(document.hidden)return;
+ if(validUser()&&nexusNative())syncNativeNotificationUi();
+ if(activeCall)resumeResidentCall();
+ else if(validUser())refresh();
 });
 window.addEventListener('focus',()=>{
  if(validUser()&&nexusNative())syncNativeNotificationUi();
- // The native Android call Activity can return to an existing WebView tab.
- // Refresh the pending call and reopen the full-screen answer dialog.
- if(validUser()&&!activeCall)refresh();
+ if(activeCall)resumeResidentCall();
+ else if(validUser())refresh();
+});
+window.addEventListener('pageshow',()=>{if(activeCall)resumeResidentCall();});
+window.addEventListener('online',()=>{if(activeCall)resumeResidentCall();});
+window.addEventListener('offline',()=>{
+ if(activeCall)startResidentConnectionGrace();
 });
 setup();
