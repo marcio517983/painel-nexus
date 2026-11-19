@@ -24,6 +24,10 @@ function expireVisitorConnection(){
  if(!call||!visitorConnectionDeadline)return;
  // The countdown is based on absolute time, including time spent in background.
  if(Date.now()<visitorConnectionDeadline)return;
+ if(peer?.connectionState==='connected'&&navigator.onLine!==false){
+  clearVisitorConnectionGrace(true);
+  return;
+ }
  const id=call,accessToken=secret;
  visitorDiag.event('reconexao_esgotada','15s');
  done('network');
