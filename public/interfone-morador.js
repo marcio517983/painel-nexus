@@ -7,6 +7,34 @@ let residentReceiveVideo=true;
 let inboundAudioTimer=null,lastInboundAudioBytes=0;
 const nexusNative=()=>window.Capacitor?.Plugins?.NexusCall||null;
 let lastNativeCallId=null;
+
+/**
+ * The native Android call screen can record one explicit choice made by the
+ * resident. Never trust a URL ?mode= query to auto-answer a WebRTC call.
+ * The native plugin returns and consumes a short-lived, one-time decision.
+ * The authenticated server is still responsible for the authorization.
+ */
+async function resumeNativeCallChoice(){
+ const native=nexusNative();
+ if(!native?.consumePendingCallAction)return false;
+ let pending;
+ try{pending=await native.consumePendingCallAction();}
+ catch(e){notice('Não foi possível recuperar a escolha do Android: '+(e.message||e));return false;}
+ if(!pending?.callId||!['video','audio','decline'].includes(pending.action))return false;
+ // Server truth: pending UUID must still be a ringing call assigned to this
+ // authenticated resident. The native selection alone grants no access.
+ let calls=[];
+ try{calls=(await req('calls')).calls||[];}
+ catch(e){notice('Falha ao conferir chamada no servidor: '+(e.message||e));return false;}
+ const c=calls.find(item=>item.id===pending.callId&&item.status==='ringing'&&
+     Number(item.expires)>Math.floor(Date.now()/1000));
+ if(!c){notice('A chamada selecionada já foi atendida ou expirou.');return false;}
+ lastCalls=calls;
+ await act(c,pending.action==='decline'?'decline':'answer',
+           pending.action==='video'?'video':'audio');
+ return true;
+}
+
 /** Android APK only: default the conversation to the built-in loudspeaker. */
 async function preferNativeSpeaker(){
  const native=nexusNative();
@@ -538,9 +566,12 @@ async function setup(){
    $('#qrurl').textContent=location.origin+'/interfone.html?central='+encodeURIComponent(profile.clientId);
    await loadUnits();
   }
+  // Consume the native call choice BEFORE rendering pending calls. Otherwise
+  // refresh() would reopen the incoming dialog and trigger another native ring.
+  const nativeActionHandled=await resumeNativeCallChoice();
   await checkNotificationState();
   await checkPilotNetwork();
-  await refresh();
+  if(!nativeActionHandled)await refresh();
   setInterval(refresh,2300);
  }catch(e){notice('Não foi possível iniciar o painel: '+e.message)}
 }
