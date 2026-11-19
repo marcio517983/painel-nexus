@@ -1,0 +1,21 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NexusMaster | Condomínio demonstrativo</title><link rel="stylesheet" href="/style.css"><style>body{background:#0d2030;color:#eaf4fc;font-family:system-ui,sans-serif;margin:0}main{max-width:850px;margin:auto;padding:24px}section{border:1px solid #476c85;background:#133047;border-radius:16px;padding:20px;margin:20px 0}button,.button{display:inline-block;padding:13px 17px;border:0;border-radius:10px;background:#167d9c;color:white;cursor:pointer;font-weight:700;text-decoration:none}button:disabled{opacity:.5;cursor:not-allowed}a{color:#a3dcfd}li{margin:9px 0}#progress{white-space:pre-line}#credentials{white-space:pre-wrap;overflow-wrap:anywhere;background:#081a2b;border-radius:10px;padding:16px}label{display:block;margin:16px 0}.warn{color:#ffdfa5}.status{color:#b7ecc7}.muted{color:#b3c9d6}</style></head><body><main>
+<p><a href="/master.html">← Voltar ao painel Master</a></p><h1>Condomínio demonstrativo · 5 casas</h1>
+<p>Preparação guiada de um cliente fictício para apresentar o NexusMaster e o Porteiro Cloud. Exige uma conta Master no banco de testes.</p>
+<section><h2>O que será cadastrado</h2>
+<ul><li>Cliente: <strong>Controws | Condomínio Demonstração 5 Casas</strong></li>
+<li>Cinco residências: Casa 01 até Casa 05</li>
+<li>Uma conta fictícia de síndico e cinco contas fictícias de morador, cada uma com senha própria</li>
+<li>ESP32 DevKit Central: portão de veículos no canal 1 (GPIO25) e pedestres no canal 2 (GPIO23)</li>
+<li>Porteiro Cloud habilitado; GPS da portaria ainda deverá ser configurado</li></ul>
+<p class="warn">Os dois canais serão cadastrados <strong>desabilitados</strong>. Não haverá nenhum pulso automático. A instalação e os testes elétricos serão feitos separadamente.</p>
+<label><input id="agree" type="checkbox"> Confirmo que este cliente será fictício, exclusivamente para testes e demonstrações.</label>
+<button id="create" disabled>Preparar condomínio demonstrativo</button>
+<p id="progress" role="status" aria-live="polite"></p></section>
+<section id="result" hidden><h2>Dados da demonstração</h2>
+<p id="client-id"></p><div id="credentials"></div>
+<p class="warn">As senhas aparecem apenas nesta tela após a criação. Baixe as credenciais e guarde em local privado. Os e-mails .invalid são identidades fictícias para login; não recebem mensagens.</p>
+<button id="save-credentials">Baixar credenciais de teste (JSON)</button>
+<button id="save-device">Baixar provision.json do DevKit</button>
+<p><a id="manage" href="#">Gerenciar residências e moradores</a> · <a id="device" href="/firmwares/devkit-central.zip">Firmware ESP32 DevKit Central</a> · <a href="/master.html">Painel Master</a></p>
+<p class="muted">No Windows, extraia o firmware e use o instalador conforme LEIA-ME. Configure apenas os canais fisicamente ligados e confirme o teste de cada relé antes de habilitar no Master.</p></section>
+</main><script type="module" src="/demo-condominio.js"></script></body></html>
