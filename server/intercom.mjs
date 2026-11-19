@@ -13,6 +13,12 @@ const digest=s=>createHash('sha256').update(String(s)).digest('hex');
 const token=()=>randomBytes(32).toString('hex');
 const originOk=(r,env)=>nexusOriginAllowed(r,env);
 const safeId=s=>/^[a-zA-Z0-9_-]{1,64}$/.test(s||'');
+const intercomEnabled=async(env,cid,config)=>{
+ if(typeof config?.services?.porteiroCloud==='boolean')return config.services.porteiroCloud;
+ // Existing tenants are treated as enabled only when their intercom was set up.
+ // Other NexusMaster customers must explicitly activate the paid module.
+ return Boolean(await query(env,'SELECT id FROM intercom_units WHERE client_id=? LIMIT 1',cid).first());
+};
 const units=async(env,cid)=> (await query(env,'SELECT id,label FROM intercom_units WHERE client_id=? AND enabled=1 ORDER BY label LIMIT 100',cid).all()).results;
 const row=async(env,id)=>query(env,'SELECT * FROM intercom_calls WHERE id=?',id).first();
 const active=async(env,id)=>{const c=await row(env,id);if(!c)return null;if(c.status==='answered'&&c.expires<=now()){await query(env,"UPDATE intercom_calls SET status='ended',ended_at=? WHERE id=? AND status='answered'",now(),id).run();return {...c,status:'ended'};}if(c.status==='ringing'&&c.expires<=now()){await query(env,"UPDATE intercom_calls SET status='missed',ended_at=? WHERE id=? AND status='ringing'",now(),id).run();return {...c,status:'missed'};}return c;};
@@ -75,7 +81,9 @@ export async function intercom(r,env){
   if(p[0]==='public'){
    const cid=p[1];if(!safeId(cid))return json({message:'Condomínio inválido'},400);
    const client=await query(env,'SELECT data FROM clients WHERE id=?',cid).first();
-   if(!client||JSON.parse(client.data).archived===true||JSON.parse(client.data).services?.porteiroCloud===false)return json({message:'Interfone indisponível'},404);
+   if(!client)return json({message:'Interfone indisponível'},404);
+    const publicConfig=JSON.parse(client.data);
+    if(publicConfig.archived===true||!await intercomEnabled(env,cid,publicConfig))return json({message:'Interfone indisponível'},404);
    if(p[2]==='units'&&method==='GET'){
     const entrance=await query(env,'SELECT enabled FROM intercom_entrances WHERE client_id=?',cid).first();
     const pilot=await pilotNetworkStatus(env,cid,r);
@@ -170,7 +178,7 @@ export async function intercom(r,env){
     const links=(await query(env,'SELECT unit_id,user_id FROM intercom_unit_members WHERE client_id=?',cid).all()).results;
     const users=(config.users||[]).filter(x=>['morador','sindico'].includes(x.role))
       .map(x=>({id:x.id,name:x.name,email:x.email,role:x.role,active:x.active===true}));
-    return json({clientId:cid,clientName:config.name,enabled:config.services?.porteiroCloud!==false,
+    return json({clientId:cid,clientName:config.name,enabled:await intercomEnabled(env,cid,config),
       residences:residences.map(x=>({...x,members:links.filter(m=>m.unit_id===x.id).map(m=>m.user_id)})),users,
       legacyMode:config.services?.porteiroCloud===undefined});
    }
@@ -209,7 +217,7 @@ export async function intercom(r,env){
    }
    return json({message:'Operação administrativa não autorizada'},403);
   }
-  if(u&&u.role!=='master'&&u.client?.services?.porteiroCloud===false)return json({message:'Porteiro Cloud não contratado'},403);
+  if(u&&u.role!=='master'&&!await intercomEnabled(env,u.clientId,u.client))return json({message:'Porteiro Cloud não contratado'},403);
   if(p[0]==='pilot-network'&&['GET','POST'].includes(method)){
    // Isolated demo only, never exposed for a real condo or production.
    if(!u||!validRole(u)||!isPilotNetworkEnv(env,u.clientId))return json({message:'Modo de testes indisponível.'},404);
