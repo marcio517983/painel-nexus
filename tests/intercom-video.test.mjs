@@ -170,6 +170,69 @@ test('incoming and active call have full-height surfaces, safe area and call con
  }
 });
 
+
+test('native Android video or audio choice is consumed once and server-verified before answering',async()=>{
+ for(const mode of ['video','audio']){
+  const h=browserHarness('interfone-morador.js');
+  const id='00000000-0000-4000-8000-000000000001';
+  let consumed=0,accepted=0;
+  h.ctx.window.Capacitor={Plugins:{NexusCall:{
+   async consumePendingCallAction(){consumed++;return consumed===1?{callId:id,action:mode}:{};},
+   async preferSpeaker(){return{selected:true};},
+   async releaseSpeaker(){}
+  }}};
+  h.ctx.fetch=async(url,options={})=>{
+   const path=String(url);
+   if(path.endsWith('/calls')&&!options.method)return{ok:true,json:async()=>({calls:[{id,unit_id:'apto-102',
+    status:'ringing',label:'Apartamento 102',reason:'visita',expires:Math.floor(Date.now()/1000)+25}]})};
+   if(path.endsWith('/'+id+'/answer')&&options.method==='POST'){accepted++;return{ok:true,json:async()=>({expires:Math.floor(Date.now()/1000)+90})};}
+   if(path.endsWith('/'+id+'/signal')&&!options.method)return{ok:true,json:async()=>({offer:{type:'offer',sdp:'v=0\\r\\nm=video 9 UDP/TLS/RTP/SAVPF 96'}})};
+   if(path.endsWith('/'+id+'/status'))return{ok:true,json:async()=>({status:'answered',expires:Math.floor(Date.now()/1000)+90})};
+   return{ok:true,json:async()=>({ok:true})};
+  };
+  runInContext('profile={role:"morador",clientId:"interfone-piloto"}',h.ctx);
+  const result=await runInContext('resumeNativeCallChoice()',h.ctx);
+  assert.equal(result,true);
+  assert.equal(consumed,1);
+  assert.equal(accepted,1,'only one authenticated server answer is submitted');
+  assert.equal(h.element('#active-audio').hidden,false);
+  assert.equal(h.element('#incoming-dialog').open,false,'no second incoming confirmation');
+  assert.equal(runInContext('residentReceiveVideo',h.ctx),mode==='video');
+ }
+});
+
+test('URL call parameter alone does not trigger an automatic answer',async()=>{
+ const h=browserHarness('interfone-morador.js');
+ let answered=0;
+ h.ctx.window.Capacitor={Plugins:{NexusCall:{async consumePendingCallAction(){return{};}}}};
+ h.ctx.fetch=async(url,options={})=>{
+  if(options.method==='POST'&&String(url).endsWith('/answer'))answered++;
+  return{ok:true,json:async()=>({calls:[]})};
+ };
+ runInContext('profile={role:"morador"}',h.ctx);
+ assert.equal(await runInContext('resumeNativeCallChoice()',h.ctx),false);
+ assert.equal(answered,0);
+});
+
+test('native decline is sent to backend instead of merely hiding the Android alert',async()=>{
+ const h=browserHarness('interfone-morador.js');
+ const id='00000000-0000-4000-8000-000000000001';
+ let declines=0;
+ h.ctx.window.Capacitor={Plugins:{NexusCall:{async consumePendingCallAction(){return{callId:id,action:'decline'}}}}};
+ h.ctx.fetch=async(url,options={})=>{
+  const path=String(url);
+  if(path.endsWith('/calls')&&!options.method){
+   return{ok:true,json:async()=>({calls:declines?[]:[{id,status:'ringing',label:'Apartamento 102',
+    reason:'visita',expires:Math.floor(Date.now()/1000)+25}]})};
+  }
+  if(path.endsWith('/'+id+'/decline')&&options.method==='POST')declines++;
+  return{ok:true,json:async()=>({ok:true})};
+ };
+ runInContext('profile={role:"morador"}',h.ctx);
+ assert.equal(await runInContext('resumeNativeCallChoice()',h.ctx),true);
+ assert.equal(declines,1);
+});
+
 test('videoporteiro markup includes distinct camera capture and resident playback controls',()=>{
  const visitor=readFileSync(new URL('../public/interfone.html',import.meta.url),'utf8');
  const resident=readFileSync(new URL('../public/interfone-morador.html',import.meta.url),'utf8');
