@@ -337,6 +337,8 @@ async function connectAudio(id){
   const media=new MediaStream([event.track]);
   if(event.track.kind==='video'){
    if(!residentReceiveVideo){
+    const ignored=$('#remote-video');
+    ignored.pause();ignored.srcObject=null;ignored.hidden=true;
     $('#video-status').textContent='Modo somente áudio: imagem da portaria não recebida.';
     return;
    }
