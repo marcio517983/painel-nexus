@@ -17,7 +17,10 @@ test('both call screens expose countdown and media controls, and never show a ga
  const r=readFileSync(new URL('../public/interfone-morador.html',import.meta.url),'utf8');
  const visitor=readFileSync(new URL('../public/interfone.js',import.meta.url),'utf8');
  const resident=readFileSync(new URL('../public/interfone-morador.js',import.meta.url),'utf8');
- for(const id of ['talk-clock','visitor-mute','visitor-camera','visitor-flip'])assert.match(v,new RegExp('id="'+id+'"'));
+ for(const id of ['talk-clock','visitor-mute'])assert.match(v,new RegExp('id="'+id+'"'));
+ assert.doesNotMatch(v,/id="visitor-camera"|id="visitor-flip"/);
+ assert.match(r,/id="incoming-answer-audio"/);
+ assert.match(r,/Atender com vídeo/);
  for(const id of ['resident-talk-clock','resident-mute','resident-speaker','hangup'])assert.match(r,new RegExp('id="'+id+'"'));
  assert.match(visitor,/startVisitorTimer\(s.expires\)/);
  assert.match(resident,/startResidentTimer\(answerResult.expires\)/);
