@@ -3,6 +3,7 @@
 .intercom-modal::backdrop{background:#05111bce}.intercom-modal h2{font-size:23px;margin:10px 0}.intercom-modal p{line-height:1.5}
 .intercom-modal .bell{font-size:45px;animation:ringicon 1.4s infinite}
 .intercom-modal .buttons{display:flex;justify-content:space-evenly;gap:12px;flex-wrap:wrap}
+.intercom-modal .buttons button{flex:1 1 100%;margin:2px 0}.intercom-modal .buttons .danger{flex:1}
 .intercom-modal button{padding:13px 24px}.intercom-modal .accept{background:#248658}
 #notification-help{border:1px solid #3d6787;border-radius:12px;padding:14px;margin:14px 0;background:#173850}
 #notification-help button{margin:8px 0}
@@ -33,7 +34,7 @@
 <p class="muted">Depois de autorizar, atualize a página do visitante no notebook. Mantenha ambos no mesmo Wi-Fi e desative VPN/dados móveis durante o teste.</p>
 </section>
 <section id="active-audio" hidden>
-<h2>📹 Videoporteiro</h2><p id="active-audio-label">Interfone conectado ao visitante</p><p id="resident-talk-clock" class="call-timer" role="timer">01:30</p><p class="call-limit">A ligação termina automaticamente após 1 min 30 s.</p><p id="video-status" role="status">Verificando se a portaria está enviando vídeo...</p><video id="remote-video" autoplay muted playsinline hidden aria-label="Vídeo ao vivo da portaria"></video>
+<h2>📹 Videoporteiro</h2><p id="active-audio-label">Interfone conectado ao visitante</p><p id="resident-call-mode" class="muted">Atendimento com vídeo da portaria</p><p id="resident-talk-clock" class="call-timer" role="timer">01:30</p><p class="call-limit">A ligação termina automaticamente após 1 min 30 s.</p><p id="video-status" role="status">Verificando se a portaria está enviando vídeo...</p><video id="remote-video" autoplay muted playsinline hidden aria-label="Vídeo ao vivo da portaria"></video>
 <p id="visitor-audio-status" role="status">Aguardando áudio do visitante...</p>
 <div class="call-tools"><button id="resident-mute" type="button" aria-pressed="false">🎙️ Silenciar microfone</button><button id="resident-speaker" type="button" aria-pressed="true" hidden>🔊 Viva-voz ligado</button></div>
 <button id="enable-visitor-audio" type="button" hidden>🔊 Ouvir visitante</button>
@@ -45,9 +46,11 @@
 <p id="incoming-unit">Apartamento</p>
 <p id="incoming-reason">Motivo da visita</p>
 <p id="incoming-countdown" aria-live="off">Aguardando atendimento...</p>
+<p class="muted">Escolha se deseja ver a câmera da portaria. Em nenhum modo o visitante recebe sua imagem.</p>
 <div class="buttons">
+<button id="incoming-answer" class="accept" type="button">📹 Atender com vídeo</button>
+<button id="incoming-answer-audio" class="accept" type="button">🎙️ Somente áudio</button>
 <button id="incoming-decline" class="danger" type="button">Recusar</button>
-<button id="incoming-answer" class="accept" type="button">Atender</button>
 </div>
 </dialog>
-<section id="setup" hidden><h2>Configurar residências (síndico)</h2><p class="muted">A configuração GPS e a liberação futura de portões pelo videoporteiro ficarão reservadas ao Master.</p><label>Código interno <input id="unitId" placeholder="ex.: apto-102" maxlength="64"></label><label>Nome exibido ao visitante<input id="unitLabel" placeholder="Apartamento 102" maxlength="55"></label><button id="addUnit">Cadastrar residência</button><label>Residências cadastradas<select id="units"></select></label><label>ID do morador cadastrado no NexusMaster<input id="userId" placeholder="ID do usuário" maxlength="64"></label><button id="addMember">Vincular morador</button><p class="muted">O síndico obtém o ID do morador no cadastro existente do painel Master. O QR Code deverá apontar para <code id="qrurl"></code>.</p></section><p class="muted">Ao atender, o NexusMaster solicita acesso ao microfone e inicia a ligação. Nenhum portão pode ser acionado por esta tela nesta etapa.</p></main><script type="module" src="/interfone-morador.js"></script><script src="/pwa.js" defer></script></body></html>
+<section id="setup" hidden><h2>Configurar residências (síndico)</h2><p class="muted">A configuração GPS e a liberação futura de portões pelo videoporteiro ficarão reservadas ao Master.</p><label>Código interno <input id="unitId" placeholder="ex.: apto-102" maxlength="64"></label><label>Nome exibido ao visitante<input id="unitLabel" placeholder="Apartamento 102" maxlength="55"></label><button id="addUnit">Cadastrar residência</button><label>Residências cadastradas<select id="units"></select></label><label>ID do morador cadastrado no NexusMaster<input id="userId" placeholder="ID do usuário" maxlength="64"></label><button id="addMember">Vincular morador</button><p class="muted">O síndico obtém o ID do morador no cadastro existente do painel Master. O QR Code deverá apontar para <code id="qrurl"></code>.</p></section><p class="muted">Ao atender, o NexusMaster solicita acesso ao microfone e inicia a ligação. Escolha vídeo da portaria ou somente áudio. Nenhum portão pode ser acionado por esta tela nesta etapa.</p></main><script type="module" src="/interfone-morador.js"></script><script src="/pwa.js" defer></script></body></html>
