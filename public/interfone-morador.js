@@ -23,6 +23,10 @@ function clearResidentConnectionGrace(recovered=false){
 function expireResidentConnection(){
  if(!activeCall||!residentConnectionDeadline)return;
  if(Date.now()<residentConnectionDeadline)return;
+ if(peer?.connectionState==='connected'&&navigator.onLine!==false){
+  clearResidentConnectionGrace(true);
+  return;
+ }
  residentDiag.event('reconexao_esgotada','15s');
  void hangup('network');
 }
