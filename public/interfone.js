@@ -3,6 +3,25 @@ let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audi
 let cameraStream=null,remoteAudio=null;
 let visitorUnitsAvailable=false;
 let visitorTalkEndsAt=0,visitorTimer=null;
+let visitorConnectionGraceTimer=null;
+const VISITOR_RECONNECT_GRACE_MS=15000;
+function clearVisitorConnectionGrace(){
+ if(visitorConnectionGraceTimer!==null){clearTimeout(visitorConnectionGraceTimer);visitorConnectionGraceTimer=null;}
+}
+function startVisitorConnectionGrace(){
+ if(!call||visitorConnectionGraceTimer!==null)return;
+ const id=call;
+ setNotice('Conexão com o morador interrompida. Tentando recuperar por até 15 segundos...');
+ visitorConnectionGraceTimer=setTimeout(()=>{
+  visitorConnectionGraceTimer=null;
+  if(call!==id||peer?.connectionState==='connected')return;
+  const accessToken=secret;
+  // Close the local microphone, camera and peer even if the API is offline.
+  done('network');
+  api('calls/'+id+'/cancel',{method:'POST',headers:{Authorization:'Bearer '+accessToken}}).catch(()=>{});
+ },VISITOR_RECONNECT_GRACE_MS);
+}
+
 const reasons={entrega:'Entrega',visita:'Visita',servico:'Serviço',outro:'Outro'};
 
 let stopMicMonitoring=null;
@@ -195,6 +214,7 @@ $('#camera-start').onclick=async()=>{
 // During the call no camera-off control is available; release tracks on hangup.
 $('#camera-stop').onclick=()=>{if(!call)stopCamera();};
 window.addEventListener('pagehide',()=>{
+ clearVisitorConnectionGrace();
  resetVisitorTimer();
  stopCamera();
  stopLiveMic();
@@ -205,7 +225,7 @@ window.addEventListener('pagehide',()=>{
 async function api(path,options={}){const r=await fetch('/api/intercom/public/'+encodeURIComponent(cid)+'/'+path,{cache:'no-store',...options});const b=await r.json();if(!r.ok){const wait=Number(b.retryAfterSeconds);const explanation=Number.isFinite(wait)&&wait>0?' Tente novamente em cerca de '+Math.ceil(wait/60)+' minuto(s).':'';throw Error((b.message||'Falha de comunicação')+explanation);}return b;}
 function tone(frequency,duration){if(!ctx)return;const oscillator=ctx.createOscillator(),g=ctx.createGain();oscillator.type='sine';oscillator.frequency.value=frequency;g.gain.value=0.055;oscillator.connect(g).connect(ctx.destination);oscillator.start();oscillator.stop(ctx.currentTime+duration); }
 function ring(){if(!ctx)return;const elapsed=(Date.now()-started)/1000;if(elapsed%6<1.8){tone(425,.32);setTimeout(()=>{if(call)tone(425,.32)},520);}}
-function done(status){resetVisitorTimer();resetVisitorControls();stopLiveMic();peer?.close();peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;remoteAudio?.remove();remoteAudio=null;stopCamera();audioStarted=false;clearInterval(timer);timer=null;call=null;secret='';const map={answered:['Chamada atendida','Conectando áudio com o morador...'],declined:['Ocupado','O morador não pôde atender.'],missed:['Não atendida','O tempo de chamada terminou.'],ended:['Chamada encerrada','A chamada foi encerrada.'],limit:['Tempo encerrado','Limite de 1 minuto e 30 segundos atingido.']};const [title,message]=map[status]||['Chamada encerrada','Tente novamente mais tarde.'];$('#title').textContent=title;$('#sub').textContent=message;$('#clock').textContent='';$('#talk-clock').hidden=true;$('#talk-time-note').hidden=true;$('#symbol').textContent='✕';$('#cancel').textContent='Nova chamada';$('#cancel').onclick=()=>location.reload();if(['missed','declined'].includes(status)){tone(480,.25);setTimeout(()=>tone(480,.25),480);setTimeout(()=>tone(480,.25),960);}}
+function done(status){clearVisitorConnectionGrace();resetVisitorTimer();resetVisitorControls();stopLiveMic();peer?.close();peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;remoteAudio?.remove();remoteAudio=null;stopCamera();audioStarted=false;clearInterval(timer);timer=null;call=null;secret='';const map={answered:['Chamada atendida','Conectando áudio com o morador...'],declined:['Ocupado','O morador não pôde atender.'],missed:['Não atendida','O tempo de chamada terminou.'],ended:['Chamada encerrada','A chamada foi encerrada.'],limit:['Tempo encerrado','Limite de 1 minuto e 30 segundos atingido.'],network:['Conexão encerrada','A conexão ficou indisponível por mais de 15 segundos. Faça uma nova chamada.']};const [title,message]=map[status]||['Chamada encerrada','Tente novamente mais tarde.'];$('#title').textContent=title;$('#sub').textContent=message;$('#clock').textContent='';$('#talk-clock').hidden=true;$('#talk-time-note').hidden=true;$('#symbol').textContent='✕';$('#cancel').textContent='Nova chamada';$('#cancel').onclick=()=>location.reload();if(['missed','declined'].includes(status)){tone(480,.25);setTimeout(()=>tone(480,.25),480);setTimeout(()=>tone(480,.25),960);}}
 async function poll(){if(!call)return;try{const s=await api('calls/'+call,{headers:{Authorization:'Bearer '+secret}});if(s.status==='answered'){
  startVisitorTimer(s.expires);
  if(!audioStarted){audioStarted=true;$('#title').textContent='Chamada atendida';$('#sub').textContent='Conectando áudio com o morador...';startAudio().catch(e=>{setNotice('Não foi possível transmitir o microfone: '+e.message);offerMicRetry();});}
@@ -228,8 +248,22 @@ function freshVisitorLocation(){
  });
 }
 // Enforce the absolute call deadline after the browser resumes from background.
+function resumeVisitorCall(){
+ if(!call)return;
+ updateVisitorTimer();
+ if(call){
+  if(peer&&['failed','disconnected'].includes(peer.connectionState))startVisitorConnectionGrace();
+  poll();
+ }
+}
 document.addEventListener('visibilitychange',()=>{
- if(!document.hidden&&call){updateVisitorTimer();if(call)poll();}
+ if(!document.hidden)resumeVisitorCall();
+});
+window.addEventListener('focus',resumeVisitorCall);
+window.addEventListener('pageshow',resumeVisitorCall);
+window.addEventListener('online',resumeVisitorCall);
+window.addEventListener('offline',()=>{
+ if(call&&audioStarted)startVisitorConnectionGrace();
 });
 // Same-network mode is an explicit, temporary Preview-only test, not a geofence.
 if(!cid){
@@ -345,7 +379,18 @@ async function startAudio(){
   remoteAudio.srcObject=e.streams[0]||new MediaStream([e.track]);
   remoteAudio.play().catch(()=>setNotice('Toque na tela para habilitar o áudio do morador.'));
  };
- peer.onconnectionstatechange=()=>{if(peer?.connectionState==='connected'){setNotice(videoTracks.length?'Áudio e câmera conectados.':'Áudio conectado (sem câmera).');$('#title').textContent='Em comunicação';$('#sub').textContent='Você está falando com o morador.';}};
+ const currentPeer=peer;
+ peer.onconnectionstatechange=()=>{
+  if(call!==id||peer!==currentPeer)return;
+  const state=currentPeer.connectionState;
+  if(state==='connected'){
+   clearVisitorConnectionGrace();
+   setNotice(videoTracks.length?'Áudio e câmera conectados.':'Áudio conectado (sem câmera).');
+   $('#title').textContent='Em comunicação';$('#sub').textContent='Você está falando com o morador.';
+  }else if(state==='disconnected'||state==='failed'){
+   startVisitorConnectionGrace();
+  }
+ };
  const offer=await peer.createOffer();await peer.setLocalDescription(offer);await completeIce(peer);
  await api('calls/'+id+'/offer',{method:'POST',headers:{...authorization,'Content-Type':'application/json'},body:JSON.stringify(peer.localDescription)});
  for(let i=0;i<35&&call===id;i++){const d=await api('calls/'+id+'/answer',{headers:authorization});if(d.sdp){await peer.setRemoteDescription(d.sdp);return;}await sleep(1000);}
