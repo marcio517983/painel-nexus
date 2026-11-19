@@ -233,6 +233,83 @@ test('native decline is sent to backend instead of merely hiding the Android ale
  assert.equal(declines,1);
 });
 
+test('90-second visitor timer closes WebRTC and camera after suspended browser resumes',()=>{
+ const h=browserHarness('interfone.js');
+ const audio=new h.Track('audio');
+ const video=new h.Track('video');
+ runInContext('call="resume-test";secret="temporary";visitorTalkEndsAt=Math.floor(Date.now()/1000)-2;peer=new RTCPeerConnection()',h.ctx);
+ runInContext('stream=new MediaStream([new Track("audio")])',h.ctx);
+ runInContext('updateVisitorTimer()',h.ctx);
+ assert.equal(runInContext('call',h.ctx),null);
+ assert.equal(h.peerConnections.at(-1).closed,true);
+ assert.equal(h.element('#title').textContent,'Tempo encerrado');
+});
+
+test('90-second resident timer closes media and hides call on Android resume',()=>{
+ const h=browserHarness('interfone-morador.js');
+ runInContext('activeCall="resume-test";residentTalkEndsAt=Math.floor(Date.now()/1000)-2;stream=new MediaStream([new Track("audio")]);peer=new RTCPeerConnection()',h.ctx);
+ runInContext('updateResidentTimer()',h.ctx);
+ assert.equal(runInContext('activeCall',h.ctx),null);
+ assert.equal(h.peerConnections.at(-1).closed,true);
+ assert.equal(h.element('#active-audio').hidden,true);
+ assert.match(h.element('#notice').textContent,/1 minuto e 30 segundos/);
+});
+
+test('visitor recovers a disconnected WebRTC peer before the 15-second grace ends',async()=>{
+ const h=browserHarness('interfone.js');
+ let timeoutFn,waitMs,cleared=false;
+ h.ctx.setTimeout=(fn,ms)=>{timeoutFn=fn;waitMs=ms;return 777};
+ h.ctx.clearTimeout=()=>{cleared=true};
+ runInContext('call="reconnect";secret="temporary";peer=new RTCPeerConnection();peer.connectionState="disconnected";startVisitorConnectionGrace()',h.ctx);
+ assert.equal(waitMs,15000);
+ assert.equal(h.element('#notice').textContent.includes('15 segundos'),true);
+ runInContext('peer.connectionState="connected";clearVisitorConnectionGrace()',h.ctx);
+ assert.equal(cleared,true);
+ assert.equal(runInContext('call',h.ctx),'reconnect');
+});
+
+test('visitor closes an unrecoverable P2P session after the 15-second network grace',()=>{
+ const h=browserHarness('interfone.js');
+ let timeoutFn;
+ h.ctx.setTimeout=(fn,ms)=>{timeoutFn=fn;return 777};
+ runInContext('call="reconnect";secret="temporary";stream=new MediaStream([new Track("audio")]);peer=new RTCPeerConnection();peer.connectionState="failed";startVisitorConnectionGrace()',h.ctx);
+ assert.equal(typeof timeoutFn,'function');
+ timeoutFn();
+ assert.equal(runInContext('call',h.ctx),null);
+ assert.equal(h.peerConnections.at(-1).closed,true);
+ assert.match(h.element('#sub').textContent,/15 segundos/);
+});
+
+test('resident closes an unrecoverable network session while preserving normal re-connection',async()=>{
+ const h=browserHarness('interfone-morador.js');
+ let timeoutFn,waitMs,cleared=false;
+ h.ctx.setTimeout=(fn,ms)=>{timeoutFn=fn;waitMs=ms;return 727};
+ h.ctx.clearTimeout=()=>{cleared=true};
+ runInContext('activeCall="abc";stream=new MediaStream([new Track("audio")]);peer=new RTCPeerConnection();peer.connectionState="disconnected";startResidentConnectionGrace()',h.ctx);
+ assert.equal(waitMs,15000);
+ runInContext('peer.connectionState="connected";clearResidentConnectionGrace()',h.ctx);
+ assert.equal(cleared,true);
+ assert.equal(runInContext('activeCall',h.ctx),'abc');
+ runInContext('peer.connectionState="failed";startResidentConnectionGrace()',h.ctx);
+ assert.equal(typeof timeoutFn,'function');
+ timeoutFn();
+ assert.equal(runInContext('activeCall',h.ctx),null);
+ assert.equal(h.peerConnections.at(-1).closed,true);
+ assert.equal(h.element('#active-audio').hidden,true);
+});
+
+test('both Android and visitor surfaces recheck deadlines after focus and network recovery',()=>{
+ const v=readFileSync(new URL('../public/interfone.js',import.meta.url),'utf8');
+ const r=readFileSync(new URL('../public/interfone-morador.js',import.meta.url),'utf8');
+ for(const js of [v,r]){
+  assert.match(js,/window\.addEventListener\('focus'/);
+  assert.match(js,/window\.addEventListener\('pageshow'/);
+  assert.match(js,/window\.addEventListener\('online'/);
+  assert.match(js,/window\.addEventListener\('offline'/);
+  assert.match(js,/document\.addEventListener\('visibilitychange'/);
+ }
+});
+
 test('videoporteiro markup includes distinct camera capture and resident playback controls',()=>{
  const visitor=readFileSync(new URL('../public/interfone.html',import.meta.url),'utf8');
  const resident=readFileSync(new URL('../public/interfone-morador.html',import.meta.url),'utf8');
