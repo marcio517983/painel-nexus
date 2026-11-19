@@ -135,7 +135,12 @@ export async function intercom(r,env){
     if(method==='GET'&&p[4]==='answer')return json({sdp:c.answer_sdp?JSON.parse(c.answer_sdp):null});
     if(method==='POST'&&p[4]==='offer'){
       const b=await payloadSignal(r);if(b.type!=='offer')return json({message:'Oferta inválida'},400);
-      const updated=await query(env,"UPDATE intercom_calls SET offer_sdp=? WHERE id=? AND status='answered' AND expires>? AND offer_sdp IS NULL RETURNING id",JSON.stringify(b),c.id,now()).first();
+      const replacing=Boolean(c.offer_sdp);
+       if(replacing&&!c.answer_sdp)return json({message:'Negociação anterior pendente'},409);
+       const updated=await query(env,replacing?
+        "UPDATE intercom_calls SET offer_sdp=?,answer_sdp=NULL WHERE id=? AND status='answered' AND expires>? AND offer_sdp=? AND answer_sdp=? RETURNING id":
+        "UPDATE intercom_calls SET offer_sdp=? WHERE id=? AND status='answered' AND expires>? AND offer_sdp IS NULL RETURNING id",
+        ...(replacing?[JSON.stringify(b),c.id,now(),c.offer_sdp,c.answer_sdp]:[JSON.stringify(b),c.id,now()])).first();
       return updated?json({ok:true}):json({message:'Oferta já enviada'},409);
     }
    }
@@ -263,12 +268,14 @@ export async function intercom(r,env){
   }
   if(p[0]==='calls'&&p[1]&&p[2]==='signal'&&method==='GET'){
    const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id)||c.status!=='answered'||c.answered_by!==u.id)return json({message:'Chamada não autorizada'},403);
-   return json({offer:c.offer_sdp?JSON.parse(c.offer_sdp):null});
+   return json({offer:c.offer_sdp?JSON.parse(c.offer_sdp):null,offerTag:c.offer_sdp?digest(c.offer_sdp):null});
   }
   if(p[0]==='calls'&&p[1]&&p[2]==='signal'&&method==='POST'){
    const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id)||c.status!=='answered'||c.answered_by!==u.id)return json({message:'Chamada não autorizada'},403);
    const b=await payloadSignal(r);if(b.type!=='answer')return json({message:'Resposta inválida'},400);
-   const updated=await query(env,"UPDATE intercom_calls SET answer_sdp=? WHERE id=? AND status='answered' AND expires>? AND answer_sdp IS NULL RETURNING id",JSON.stringify(b),c.id,now()).first();
+   const expectedOffer=r.headers.get('x-intercom-offer');
+    if(!expectedOffer||digest(c.offer_sdp||'')!==expectedOffer)return json({message:'Oferta mudou; resposta descartada'},409);
+    const updated=await query(env,"UPDATE intercom_calls SET answer_sdp=? WHERE id=? AND status='answered' AND expires>? AND answer_sdp IS NULL AND offer_sdp=? RETURNING id",JSON.stringify(b),c.id,now(),c.offer_sdp).first();
    return updated?json({ok:true}):json({message:'Resposta já enviada'},409);
   }
   if(p[0]==='calls'&&p[1]&&p[2]==='hangup'&&method==='POST'){
