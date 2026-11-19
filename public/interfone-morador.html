@@ -77,7 +77,7 @@ body.nexus-call-open{overflow:hidden}
  #active-audio .call-media{min-height:35px}
  #active-audio #remote-video{max-height:27dvh}
 }
-</style><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#132c46"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="NexusMaster"><link rel="apple-touch-icon" href="/icons/nexusmaster-192.png"><link rel="icon" type="image/png" sizes="192x192" href="/icons/nexusmaster-192.png"></head><body><main><header><a href="/" class="brand">⌘ NEXUSMASTER</a></header><h1>Central de interfone</h1><button type="button" data-pwa-install hidden>Instalar NexusMaster</button><p><a href="/morador.html">Voltar aos meus acessos</a></p><p id="intercom-description">Atenda às chamadas da sua residência no navegador. Mantenha esta página aberta durante o piloto.</p><p id="notice" role="status" aria-live="polite"></p>
+#resident-reconnect-status:not([hidden]){display:block;text-align:center;font-size:20px;font-weight:800;color:#ffc69d;margin:7px 0}.intercom-diagnostics{border:1px solid #8aafc744;border-radius:12px;padding:15px;margin:18px 0}.intercom-diagnostics summary{cursor:pointer;font-weight:700}.intercom-diagnostics pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:240px;overflow:auto}.intercom-diagnostics button{margin:8px 0}</style><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#132c46"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="NexusMaster"><link rel="apple-touch-icon" href="/icons/nexusmaster-192.png"><link rel="icon" type="image/png" sizes="192x192" href="/icons/nexusmaster-192.png"></head><body><main><header><a href="/" class="brand">⌘ NEXUSMASTER</a></header><h1>Central de interfone</h1><button type="button" data-pwa-install hidden>Instalar NexusMaster</button><p><a href="/morador.html">Voltar aos meus acessos</a></p><p id="intercom-description">Atenda às chamadas da sua residência no navegador. Mantenha esta página aberta durante o piloto.</p><p id="notice" role="status" aria-live="polite"></p>
 <section id="notification-help">
 <strong>Alertas de interfone</strong>
 <p id="notification-status">Ative as notificações para receber avisos de chamadas no celular, inclusive com o PWA instalado.</p>
@@ -98,6 +98,7 @@ body.nexus-call-open{overflow:hidden}
 <p id="resident-call-mode" class="muted">Atendimento com vídeo da portaria</p>
 <p id="resident-talk-clock" class="call-timer" role="timer">01:30</p>
 <p class="call-limit">A ligação termina automaticamente após 1 min 30 s.</p>
+<p id="resident-reconnect-status" role="status" hidden>Reconectando… 15 s</p>
 <div class="call-media">
 <p id="video-status" role="status">Verificando se a portaria está enviando vídeo...</p>
 <video id="remote-video" autoplay muted playsinline hidden aria-label="Vídeo ao vivo da portaria"></video>
@@ -109,7 +110,13 @@ body.nexus-call-open{overflow:hidden}
 <button class="danger" id="hangup" type="button">📵 Encerrar chamada</button>
 </div>
 <audio id="remote-audio" autoplay playsinline></audio>
-</section><section><h2>Chamadas recebidas</h2><div id="calls">Consultando...</div></section><dialog id="incoming-dialog" class="intercom-modal" aria-labelledby="incoming-title" aria-describedby="incoming-unit">
+</section>
+<details class="intercom-diagnostics" id="resident-diagnostics-panel"><summary>Diagnóstico da última chamada (testes)</summary>
+<p class="muted">Registra somente horários, mudanças de rede e motivo do encerramento neste aparelho por até 48 horas; não grava áudio nem vídeo.</p>
+<button type="button" id="resident-diagnostics-copy">Copiar diagnóstico</button>
+<pre id="resident-diagnostics-output">Nenhum teste registrado.</pre>
+</details>
+<section><h2>Chamadas recebidas</h2><div id="calls">Consultando...</div></section><dialog id="incoming-dialog" class="intercom-modal" aria-labelledby="incoming-title" aria-describedby="incoming-unit">
 <div class="call-screen-header"><span class="call-screen-brand">◈ NEXUSMASTER</span><span class="call-ring-indicator">● CHAMADA RECEBIDA</span></div>
 <div class="incoming-content">
 <div class="bell" aria-hidden="true">📞</div>
@@ -125,4 +132,4 @@ body.nexus-call-open{overflow:hidden}
 </div>
 </div>
 </dialog>
-<section id="setup" hidden><h2>Configurar residências (síndico)</h2><p class="muted">A configuração GPS e a liberação futura de portões pelo videoporteiro ficarão reservadas ao Master.</p><label>Código interno <input id="unitId" placeholder="ex.: apto-102" maxlength="64"></label><label>Nome exibido ao visitante<input id="unitLabel" placeholder="Apartamento 102" maxlength="55"></label><button id="addUnit">Cadastrar residência</button><label>Residências cadastradas<select id="units"></select></label><label>ID do morador cadastrado no NexusMaster<input id="userId" placeholder="ID do usuário" maxlength="64"></label><button id="addMember">Vincular morador</button><p class="muted">O síndico obtém o ID do morador no cadastro existente do painel Master. O QR Code deverá apontar para <code id="qrurl"></code>.</p></section><p class="muted">Ao atender, o NexusMaster solicita acesso ao microfone e inicia a ligação. Escolha vídeo da portaria ou somente áudio. Nenhum portão pode ser acionado por esta tela nesta etapa.</p></main><script type="module" src="/interfone-morador.js"></script><script src="/pwa.js" defer></script></body></html>
+<section id="setup" hidden><h2>Configurar residências (síndico)</h2><p class="muted">A configuração GPS e a liberação futura de portões pelo videoporteiro ficarão reservadas ao Master.</p><label>Código interno <input id="unitId" placeholder="ex.: apto-102" maxlength="64"></label><label>Nome exibido ao visitante<input id="unitLabel" placeholder="Apartamento 102" maxlength="55"></label><button id="addUnit">Cadastrar residência</button><label>Residências cadastradas<select id="units"></select></label><label>ID do morador cadastrado no NexusMaster<input id="userId" placeholder="ID do usuário" maxlength="64"></label><button id="addMember">Vincular morador</button><p class="muted">O síndico obtém o ID do morador no cadastro existente do painel Master. O QR Code deverá apontar para <code id="qrurl"></code>.</p></section><p class="muted">Ao atender, o NexusMaster solicita acesso ao microfone e inicia a ligação. Escolha vídeo da portaria ou somente áudio. Nenhum portão pode ser acionado por esta tela nesta etapa.</p></main><script src="/intercom-diagnostics.js"></script><script type="module" src="/interfone-morador.js"></script><script src="/pwa.js" defer></script></body></html>
