@@ -3,6 +3,7 @@ const reasons={entrega:'Entrega ou encomenda',visita:'Visita pessoal',servico:'P
 const notice=s=>$('#notice').textContent=s;
 let profile,activeCall=null,peer=null,stream=null,currentRing=null,ringInterval=null,alertCtx=null,pollBusy=false,processing=false;
 let residentTalkEndsAt=0,residentTalkInterval=null,residentSpeakerEnabled=true;
+let residentReceiveVideo=true;
 let inboundAudioTimer=null,lastInboundAudioBytes=0;
 const nexusNative=()=>window.Capacitor?.Plugins?.NexusCall||null;
 let lastNativeCallId=null;
@@ -247,9 +248,13 @@ async function refresh(){
    const box=document.createElement('div');box.className='entry';
    const h=document.createElement('strong');h.textContent='Portaria → '+c.label;box.append(h);
    const p=document.createElement('p');p.textContent='Motivo: '+(reasons[c.reason]||c.reason)+' • '+Math.max(0,c.expires-Math.floor(Date.now()/1000))+' s restantes';box.append(p);
-   for(const [title,kind,css] of [['Atender','answer',''],['Recusar','decline','danger']]){
+   for(const [title,kind,css,mode] of [
+    ['📹 Atender com vídeo','answer','','video'],
+    ['🎙️ Somente áudio','answer','','audio'],
+    ['Recusar','decline','danger','audio']
+   ]){
     const b=document.createElement('button');b.textContent=title;b.className=css;b.type='button';
-    b.onclick=()=>act(c,kind);box.append(b);
+    b.onclick=()=>act(c,kind,mode);box.append(b);
    }
    $('#calls').append(box);
   }
@@ -257,10 +262,10 @@ async function refresh(){
   if(activeCall)await syncActiveCall();
  }catch(e){notice(e.message)}finally{pollBusy=false;}
 }
-async function act(c,kind){
+async function act(c,kind,mode='video'){
  if(processing||activeCall)return;
  processing=true;stopRing();
- $('#incoming-answer').disabled=true;$('#incoming-decline').disabled=true;
+ $('#incoming-answer').disabled=true;$('#incoming-answer-audio').disabled=true;$('#incoming-decline').disabled=true;
  let localStream=null;
  try{
   if(kind==='answer'){
@@ -269,16 +274,18 @@ async function act(c,kind){
    localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
    // WebRTC may replace the routing decision when the microphone starts.
    await preferNativeSpeaker();
+   residentReceiveVideo=mode==='video';
    const answerResult=await post('calls/'+c.id+'/answer',{});
    stream=localStream;localStream=null;activeCall=c.id;
    resetResidentControls();
    startResidentTimer(answerResult.expires);
    clearPopup();dismissPush(c.id);
    $('#active-audio').hidden=false;$('#active-audio-label').textContent='Conectando a '+c.label+'...';
+   $('#resident-call-mode').textContent=residentReceiveVideo?'📹 Atendimento com vídeo da portaria':'🎙️ Atendimento somente com áudio';
    resetInboundAudioDiagnostics();
-   $('#video-status').textContent='Verificando transmissão de vídeo da portaria...';
+   $('#video-status').textContent=residentReceiveVideo?'Verificando transmissão de vídeo da portaria...':'Modo somente áudio: a câmera da portaria não será exibida.';
    $('#remote-video').hidden=true;
-   notice('Chamada atendida. Preparando áudio e vídeo...');
+   notice(residentReceiveVideo?'Chamada atendida. Preparando áudio e vídeo...':'Chamada atendida. Preparando somente áudio...');
    connectAudio(c.id).catch(async e=>{
     notice('Não foi possível estabelecer o áudio: '+e.message);
     await hangup();
@@ -288,18 +295,22 @@ async function act(c,kind){
    clearPopup();dismissPush(c.id);notice('Chamada recusada.');
   }
  }catch(e){
-  if(kind==='answer'&&!activeCall)releaseNativeSpeaker();
+  if(kind==='answer'&&!activeCall){residentReceiveVideo=true;releaseNativeSpeaker();}
   notice('Falha ao '+(kind==='answer'?'atender':'recusar')+': '+e.message);
  }
  finally{
   localStream?.getTracks().forEach(t=>t.stop());
-  processing=false;$('#incoming-answer').disabled=false;$('#incoming-decline').disabled=false;
+  processing=false;$('#incoming-answer').disabled=false;$('#incoming-answer-audio').disabled=false;$('#incoming-decline').disabled=false;
   refresh();
  }
 }
 $('#incoming-answer').onclick=()=>{
  if(!currentRing)return;
- const c=currentCall();if(c)act(c,'answer');
+ const c=currentCall();if(c)act(c,'answer','video');
+};
+$('#incoming-answer-audio').onclick=()=>{
+ if(!currentRing)return;
+ const c=currentCall();if(c)act(c,'answer','audio');
 };
 $('#incoming-decline').onclick=()=>{
  if(!currentRing)return;
@@ -325,6 +336,10 @@ async function connectAudio(id){
   // inconsistently when video is muted.
   const media=new MediaStream([event.track]);
   if(event.track.kind==='video'){
+   if(!residentReceiveVideo){
+    $('#video-status').textContent='Modo somente áudio: imagem da portaria não recebida.';
+    return;
+   }
    const video=$('#remote-video');
    video.muted=true; // Caller audio plays only in #remote-audio.
    video.playsInline=true;
@@ -363,8 +378,14 @@ async function connectAudio(id){
  }
  if(!offer||activeCall!==id)throw Error('Oferta de áudio indisponível');
  await peer.setRemoteDescription(offer);
- if(!offer.sdp.includes('m=video')){
-  $('#video-status').textContent='Esta chamada está somente com áudio. A câmera do notebook não foi ativada.';
+ if(!residentReceiveVideo){
+  // In WebRTC, reject incoming video at SDP negotiation rather than merely
+  // hiding it in the UI. Never send any resident camera track.
+  for(const transceiver of peer.getTransceivers?.()||[]){
+   if(transceiver.receiver?.track?.kind==='video')transceiver.direction='inactive';
+  }
+ }else if(!offer.sdp.includes('m=video')){
+  $('#video-status').textContent='Câmera da portaria indisponível neste teste. Áudio permanece ativo.';
  }
  const answer=await peer.createAnswer();await peer.setLocalDescription(answer);await completeIce(peer);
  await post('calls/'+id+'/signal',peer.localDescription);
@@ -373,6 +394,7 @@ async function hangup(reason='manual'){
  const id=activeCall;
  if(!id)return;
  stopResidentTimer();
+ residentReceiveVideo=true;
  resetInboundAudioDiagnostics();
  activeCall=null;peer?.close();peer=null;
  stream?.getTracks().forEach(t=>t.stop());stream=null;
