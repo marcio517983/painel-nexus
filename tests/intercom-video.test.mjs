@@ -45,9 +45,14 @@ function browserHarness(filename){
   getTransceivers(){return this.transceivers;}
  }
  const remoteVideoOffer={type:'offer',sdp:'v=0\\r\\nm=video 9 UDP/TLS/RTP/SAVPF 96'};
+ const bodyClasses=new Set();
+ const body={append(){},classList:{
+  add(value){bodyClasses.add(value);},remove(value){bodyClasses.delete(value);},
+  contains(value){return bodyClasses.has(value);}
+ }};
  const ctx=createContext({
   window:{addEventListener(){},Capacitor:undefined,isSecureContext:true},
-  document:{querySelector:element,body:{append(){}},addEventListener(){}},
+  document:{querySelector:element,body,addEventListener(){}},
   navigator:{mediaDevices:{async getUserMedia(options){captures.push(options);return options.video?webcam:mic;}}},
   location:{search:'',origin:'https://nexus.example'},URLSearchParams,
   MediaStream,RTCPeerConnection:Peer,Track,Audio:class{constructor(){this.style={};}play(){return Promise.resolve();}setAttribute(){}remove(){}},
@@ -61,7 +66,7 @@ function browserHarness(filename){
   console,URL,Date,Math,Uint8Array
  });
  runInContext(source,ctx);
- return {ctx,element,peerConnections,webcam,mic,captures,Track,MediaStream};
+ return {ctx,element,bodyClasses,peerConnections,webcam,mic,captures,Track,MediaStream};
 }
 
 test('visitor webcam capture only starts by explicit click and adds video+audio to WebRTC',async()=>{
@@ -141,6 +146,28 @@ test('visitor cannot turn camera off during a live test call',async()=>{
  h.element('#camera-stop').onclick();
  assert.equal(h.webcam.getVideoTracks()[0].readyState,'live');
  assert.equal(h.element('#camera-status').textContent.includes('Câmera pronta'),true);
+});
+
+test('incoming Android call occupies a modal without dashboard scrolling',()=>{
+ const h=browserHarness('interfone-morador.js');
+ runInContext('renderIncoming({id:"00000000-0000-4000-8000-000000000001",expires:Math.floor(Date.now()/1000)+25,label:"Apartamento 102",reason:"visita"})',h.ctx);
+ assert.equal(h.element('#incoming-dialog').open,true);
+ assert.equal(h.bodyClasses.has('nexus-call-open'),true);
+ assert.equal(h.element('#incoming-unit').textContent,'Destino: Apartamento 102');
+ runInContext('clearPopup()',h.ctx);
+ assert.equal(h.element('#incoming-dialog').open,false);
+ assert.equal(h.bodyClasses.has('nexus-call-open'),false);
+});
+
+test('incoming and active call have full-height surfaces, safe area and call controls',()=>{
+ const html=readFileSync(new URL('../public/interfone-morador.html',import.meta.url),'utf8');
+ assert.match(html,/\.intercom-modal\[open\]\{position:fixed;inset:0/);
+ assert.match(html,/#active-audio:not\(\[hidden\]\)\{position:fixed;inset:0/);
+ assert.match(html,/height:100dvh/);
+ assert.match(html,/safe-area-inset-bottom/);
+ for(const id of ['incoming-answer','incoming-answer-audio','incoming-decline','resident-mute','resident-speaker','hangup']){
+  assert.match(html,new RegExp('id="'+id+'"'));
+ }
 });
 
 test('videoporteiro markup includes distinct camera capture and resident playback controls',()=>{
