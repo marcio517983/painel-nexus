@@ -1,25 +1,50 @@
 const $=s=>document.querySelector(s),cid=new URLSearchParams(location.search).get('central');
+const visitorDiag=window.NexusCallDiagnostics?.create('visitante','#visitor-diagnostics-output','#visitor-diagnostics-copy')||
+ {start(){},event(){},finish(){},render(){}};
+
 let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false,networkTestAllowed=false,gpsPilotAllowed=false;
 let cameraStream=null,remoteAudio=null;
 let visitorUnitsAvailable=false;
 let visitorTalkEndsAt=0,visitorTimer=null;
-let visitorConnectionGraceTimer=null;
+let visitorConnectionGraceTimer=null,visitorConnectionTicker=null,visitorConnectionDeadline=0;
 const VISITOR_RECONNECT_GRACE_MS=15000;
-function clearVisitorConnectionGrace(){
+function clearVisitorConnectionGrace(recovered=false){
+ const interruptedAt=visitorConnectionDeadline?visitorConnectionDeadline-VISITOR_RECONNECT_GRACE_MS:0;
  if(visitorConnectionGraceTimer!==null){clearTimeout(visitorConnectionGraceTimer);visitorConnectionGraceTimer=null;}
+ if(visitorConnectionTicker!==null){clearInterval(visitorConnectionTicker);visitorConnectionTicker=null;}
+ visitorConnectionDeadline=0;
+ const status=$('#visitor-reconnect-status');
+ if(status)status.hidden=true;
+ if(recovered&&interruptedAt){
+  visitorDiag.event('conexao_restaurada',String(Math.max(0,Math.floor((Date.now()-interruptedAt)/1000)))+'s');
+  setNotice('Conexão com o morador recuperada.');
+ }
 }
-function startVisitorConnectionGrace(){
- if(!call||visitorConnectionGraceTimer!==null)return;
- const id=call;
- setNotice('Conexão com o morador interrompida. Tentando recuperar por até 15 segundos...');
- visitorConnectionGraceTimer=setTimeout(()=>{
-  visitorConnectionGraceTimer=null;
-  if(call!==id||peer?.connectionState==='connected')return;
-  const accessToken=secret;
-  // Close the local microphone, camera and peer even if the API is offline.
-  done('network');
-  api('calls/'+id+'/cancel',{method:'POST',headers:{Authorization:'Bearer '+accessToken}}).catch(()=>{});
- },VISITOR_RECONNECT_GRACE_MS);
+function expireVisitorConnection(){
+ if(!call||!visitorConnectionDeadline)return;
+ // The countdown is based on absolute time, including time spent in background.
+ if(Date.now()<visitorConnectionDeadline)return;
+ const id=call,accessToken=secret;
+ visitorDiag.event('reconexao_esgotada','15s');
+ done('network');
+ // Notify the server on a best-effort basis. Never wait for network to close local media.
+ void api('calls/'+id+'/cancel',{method:'POST',headers:{Authorization:'Bearer '+accessToken}}).catch(()=>{});
+}
+function updateVisitorConnectionCountdown(){
+ if(!call||!visitorConnectionDeadline)return;
+ if(Date.now()>=visitorConnectionDeadline){expireVisitorConnection();return;}
+ const remaining=Math.max(0,Math.ceil((visitorConnectionDeadline-Date.now())/1000));
+ const el=$('#visitor-reconnect-status');
+ if(el){el.hidden=false;el.textContent='Reconectando… '+remaining+' s';}
+}
+function startVisitorConnectionGrace(reason='webrtc'){
+ if(!call||visitorConnectionDeadline)return;
+ visitorConnectionDeadline=Date.now()+VISITOR_RECONNECT_GRACE_MS;
+ visitorDiag.event('conexao_interrompida',reason);
+ setNotice('Conexão interrompida. Tentando recuperar sem reiniciar o tempo da chamada.');
+ updateVisitorConnectionCountdown();
+ visitorConnectionTicker=setInterval(updateVisitorConnectionCountdown,1000);
+ visitorConnectionGraceTimer=setTimeout(expireVisitorConnection,VISITOR_RECONNECT_GRACE_MS);
 }
 
 const reasons={entrega:'Entrega',visita:'Visita',servico:'Serviço',outro:'Outro'};
@@ -114,6 +139,7 @@ function startVisitorTimer(expires){
  if(!next||next===visitorTalkEndsAt)return;
  resetVisitorTimer();
  visitorTalkEndsAt=next;
+ visitorDiag.event('chamada_atendida','limite_90s');
  $('#clock').hidden=true;
  $('#talk-clock').hidden=false;
  $('#talk-time-note').hidden=false;
@@ -225,7 +251,7 @@ window.addEventListener('pagehide',()=>{
 async function api(path,options={}){const r=await fetch('/api/intercom/public/'+encodeURIComponent(cid)+'/'+path,{cache:'no-store',...options});const b=await r.json();if(!r.ok){const wait=Number(b.retryAfterSeconds);const explanation=Number.isFinite(wait)&&wait>0?' Tente novamente em cerca de '+Math.ceil(wait/60)+' minuto(s).':'';throw Error((b.message||'Falha de comunicação')+explanation);}return b;}
 function tone(frequency,duration){if(!ctx)return;const oscillator=ctx.createOscillator(),g=ctx.createGain();oscillator.type='sine';oscillator.frequency.value=frequency;g.gain.value=0.055;oscillator.connect(g).connect(ctx.destination);oscillator.start();oscillator.stop(ctx.currentTime+duration); }
 function ring(){if(!ctx)return;const elapsed=(Date.now()-started)/1000;if(elapsed%6<1.8){tone(425,.32);setTimeout(()=>{if(call)tone(425,.32)},520);}}
-function done(status){clearVisitorConnectionGrace();resetVisitorTimer();resetVisitorControls();stopLiveMic();peer?.close();peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;remoteAudio?.remove();remoteAudio=null;stopCamera();audioStarted=false;clearInterval(timer);timer=null;call=null;secret='';const map={answered:['Chamada atendida','Conectando áudio com o morador...'],declined:['Ocupado','O morador não pôde atender.'],missed:['Não atendida','O tempo de chamada terminou.'],ended:['Chamada encerrada','A chamada foi encerrada.'],limit:['Tempo encerrado','Limite de 1 minuto e 30 segundos atingido.'],network:['Conexão encerrada','A conexão ficou indisponível por mais de 15 segundos. Faça uma nova chamada.']};const [title,message]=map[status]||['Chamada encerrada','Tente novamente mais tarde.'];$('#title').textContent=title;$('#sub').textContent=message;$('#clock').textContent='';$('#talk-clock').hidden=true;$('#talk-time-note').hidden=true;$('#symbol').textContent='✕';$('#cancel').textContent='Nova chamada';$('#cancel').onclick=()=>location.reload();if(['missed','declined'].includes(status)){tone(480,.25);setTimeout(()=>tone(480,.25),480);setTimeout(()=>tone(480,.25),960);}}
+function done(status){if(call)visitorDiag.finish(status);clearVisitorConnectionGrace();resetVisitorTimer();resetVisitorControls();stopLiveMic();peer?.close();peer=null;stream?.getTracks().forEach(t=>t.stop());stream=null;remoteAudio?.remove();remoteAudio=null;stopCamera();audioStarted=false;clearInterval(timer);timer=null;call=null;secret='';const map={answered:['Chamada atendida','Conectando áudio com o morador...'],declined:['Ocupado','O morador não pôde atender.'],missed:['Não atendida','O tempo de chamada terminou.'],ended:['Chamada encerrada','A chamada foi encerrada.'],limit:['Tempo encerrado','Limite de 1 minuto e 30 segundos atingido.'],network:['Conexão encerrada','A conexão ficou indisponível por mais de 15 segundos. Faça uma nova chamada.'],manual:['Chamada encerrada','Você encerrou a chamada.'],error:['Chamada encerrada','A comunicação não pôde ser estabelecida.']};const [title,message]=map[status]||['Chamada encerrada','Tente novamente mais tarde.'];$('#title').textContent=title;$('#sub').textContent=message;$('#clock').textContent='';$('#talk-clock').hidden=true;$('#talk-time-note').hidden=true;$('#symbol').textContent='✕';$('#cancel').textContent='Nova chamada';$('#cancel').onclick=()=>location.reload();if(['missed','declined'].includes(status)){tone(480,.25);setTimeout(()=>tone(480,.25),480);setTimeout(()=>tone(480,.25),960);}}
 async function poll(){if(!call)return;try{const s=await api('calls/'+call,{headers:{Authorization:'Bearer '+secret}});if(s.status==='answered'){
  startVisitorTimer(s.expires);
  if(!audioStarted){audioStarted=true;$('#title').textContent='Chamada atendida';$('#sub').textContent='Conectando áudio com o morador...';startAudio().catch(e=>{setNotice('Não foi possível transmitir o microfone: '+e.message);offerMicRetry();});}
@@ -251,19 +277,25 @@ function freshVisitorLocation(){
 function resumeVisitorCall(){
  if(!call)return;
  updateVisitorTimer();
- if(call){
-  if(peer&&['failed','disconnected'].includes(peer.connectionState))startVisitorConnectionGrace();
-  poll();
- }
+ if(!call)return;
+ updateVisitorConnectionCountdown();
+ if(!call)return;
+ if(peer&&['failed','disconnected'].includes(peer.connectionState))startVisitorConnectionGrace('webrtc_'+peer.connectionState);
+ void poll();
 }
 document.addEventListener('visibilitychange',()=>{
+ if(call)visitorDiag.event(document.hidden?'segundo_plano':'primeiro_plano','web');
  if(!document.hidden)resumeVisitorCall();
 });
 window.addEventListener('focus',resumeVisitorCall);
 window.addEventListener('pageshow',resumeVisitorCall);
-window.addEventListener('online',resumeVisitorCall);
+window.addEventListener('online',()=>{
+ if(call)visitorDiag.event('internet_restaurada','navigator_online');
+ resumeVisitorCall();
+});
 window.addEventListener('offline',()=>{
- if(call&&audioStarted)startVisitorConnectionGrace();
+ if(call){visitorDiag.event('internet_indisponivel','navigator_offline');
+  if(audioStarted)startVisitorConnectionGrace('navigator_offline');}
 });
 // Same-network mode is an explicit, temporary Preview-only test, not a geofence.
 if(!cid){
@@ -315,12 +347,13 @@ $('#call').onclick=async()=>{
   }
   const s=await api('calls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   setNotice('');call=s.callId;secret=s.callToken;started=Date.now();
+  visitorDiag.start('aguardando_30s');
   $('#start').classList.add('hidden');$('#calling').classList.remove('hidden');
   $('#microphone-test').hidden=true;$('#clock').hidden=false;
   if(cameraActive())$('#calling-video-status').hidden=false;
   $('#cancel').onclick=async()=>{
    try{await api('calls/'+call+'/cancel',{method:'POST',headers:{Authorization:'Bearer '+secret}});}catch{}
-   done('ended');
+   done('manual');
   };
   await poll();timer=setInterval(poll,900);
  }catch(e){
@@ -384,11 +417,13 @@ async function startAudio(){
   if(call!==id||peer!==currentPeer)return;
   const state=currentPeer.connectionState;
   if(state==='connected'){
-   clearVisitorConnectionGrace();
+   if(visitorConnectionDeadline&&Date.now()>=visitorConnectionDeadline){expireVisitorConnection();return;}
+   visitorDiag.event('conexao_estabelecida','webrtc');
+   clearVisitorConnectionGrace(true);
    setNotice(videoTracks.length?'Áudio e câmera conectados.':'Áudio conectado (sem câmera).');
    $('#title').textContent='Em comunicação';$('#sub').textContent='Você está falando com o morador.';
   }else if(state==='disconnected'||state==='failed'){
-   startVisitorConnectionGrace();
+   startVisitorConnectionGrace('webrtc_'+state);
   }
  };
  const offer=await peer.createOffer();await peer.setLocalDescription(offer);await completeIce(peer);
