@@ -1,6 +1,7 @@
 const $=s=>document.querySelector(s),cid=new URLSearchParams(location.search).get('central');
 let call=null,secret='',timer=null,ctx=null,started=0,stream=null,peer=null,audioStarted=false,locationReady=false,networkTestAllowed=false,gpsPilotAllowed=false;
 let cameraStream=null,remoteAudio=null;
+let visitorUnitsAvailable=false;
 let visitorTalkEndsAt=0,visitorTimer=null;
 const reasons={entrega:'Entrega',visita:'Visita',servico:'Serviço',outro:'Outro'};
 
@@ -121,6 +122,11 @@ const setNotice=s=>$('#notice').textContent=s;
  * Tracks are held locally until the resident answers the call.
  */
 const cameraActive=()=>cameraStream?.getVideoTracks().some(t=>t.readyState==='live')===true;
+function updateCallReadiness(){
+ $('#call').disabled=!visitorUnitsAvailable||!(locationReady||networkTestAllowed||gpsPilotAllowed)||
+  (gpsPilotAllowed&&!cameraActive());
+}
+
 function stopCamera(){
  cameraStream?.getTracks().forEach(track=>track.stop());
  cameraStream=null;
@@ -128,7 +134,8 @@ function stopCamera(){
  $('#camera-start').hidden=false;
  $('#camera-start').disabled=false;
  $('#camera-stop').hidden=true;
- $('#camera-status').textContent='Câmera desligada. A chamada continua disponível somente com áudio.';
+ $('#camera-status').textContent='Câmera desligada. Ative a câmera para iniciar a chamada neste piloto.';
+ updateCallReadiness();
 }
 async function updateVideoDevices(){
  if(!navigator.mediaDevices?.enumerateDevices)return;
@@ -177,7 +184,8 @@ $('#camera-start').onclick=async()=>{
    if(!cameraActive())stopCamera();
   }));
   button.hidden=true;$('#camera-stop').hidden=false;
-  $('#camera-status').textContent='Câmera pronta. O vídeo será enviado quando o morador atender.';
+  $('#camera-status').textContent='Câmera pronta para a chamada. O morador poderá optar por vídeo ou somente áudio.';
+  updateCallReadiness();
  }catch(e){
   $('#camera-status').textContent='Câmera indisponível: '+(e.message||e)+'. Você ainda pode fazer a chamada só com áudio.';
   button.disabled=false;
@@ -233,7 +241,8 @@ if(!cid){
  locationReady=d.locationReady===true;
  networkTestAllowed=d.pilotNetworkTestAllowed===true;
  gpsPilotAllowed=d.pilotGpsTestEnabled===true;
- $('#call').disabled=!d.units.length||!(locationReady||networkTestAllowed||gpsPilotAllowed);
+ visitorUnitsAvailable=d.units.length>0;
+ updateCallReadiness();
  if(d.pilotNetworkTestSupported===true||gpsPilotAllowed){
   $('#camera-test').hidden=false;
  }
@@ -241,7 +250,7 @@ if(!cid){
   const expiration=d.pilotGpsTestExpiresAt?new Date(d.pilotGpsTestExpiresAt*1000).toLocaleString('pt-BR'):'temporariamente';
   $('#location-explainer').textContent='MODO DE TESTE • GPS temporariamente desativado somente no condomínio piloto até '+expiration+'. O QR Code não comprova presença física. Não use para acionar portões.';
   $('#call').textContent='☎ Chamar residência (teste sem GPS)';
-  setNotice('Ambiente piloto: chamadas liberadas sem GPS para testar entre celulares.');
+  setNotice('Ambiente piloto sem GPS. Ative a câmera de teste para chamar. O morador poderá escolher vídeo ou somente áudio.');
  }else if(networkTestAllowed){
   $('#location-explainer').textContent='MODO DE TESTE • Você está usando a mesma saída de internet autorizada pelo morador. GPS dispensado somente neste piloto e por tempo limitado.';
   $('#call').textContent='☎ Chamar (teste na mesma rede)';
@@ -254,6 +263,7 @@ if(!cid){
 }).catch(e=>setNotice(e.message));
 $('#call').onclick=async()=>{
  if(!$('#unit').value)return setNotice('Selecione uma residência.');
+ if(gpsPilotAllowed&&!cameraActive())return setNotice('Ative a câmera de teste antes de chamar. Na portaria definitiva, a câmera IP ficará fixa e independente do visitante.');
  if(!locationReady&&!networkTestAllowed&&!gpsPilotAllowed)return setNotice('GPS da portaria não configurado. Autorize o teste na rede do morador.');
  $('#call').disabled=true;
  try{
