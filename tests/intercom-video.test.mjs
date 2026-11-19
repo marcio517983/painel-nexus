@@ -262,7 +262,7 @@ test('visitor recovers a disconnected WebRTC peer before the 15-second grace end
  h.ctx.clearTimeout=()=>{cleared=true};
  runInContext('call="reconnect";secret="temporary";peer=new RTCPeerConnection();peer.connectionState="disconnected";startVisitorConnectionGrace()',h.ctx);
  assert.equal(waitMs,15000);
- assert.equal(h.element('#notice').textContent.includes('15 segundos'),true);
+ assert.equal(h.element('#visitor-reconnect-status').textContent,'Reconectando… 15 s');
  runInContext('peer.connectionState="connected";clearVisitorConnectionGrace()',h.ctx);
  assert.equal(cleared,true);
  assert.equal(runInContext('call',h.ctx),'reconnect');
@@ -274,6 +274,7 @@ test('visitor closes an unrecoverable P2P session after the 15-second network gr
  h.ctx.setTimeout=(fn,ms)=>{timeoutFn=fn;return 777};
  runInContext('call="reconnect";secret="temporary";stream=new MediaStream([new Track("audio")]);peer=new RTCPeerConnection();peer.connectionState="failed";startVisitorConnectionGrace()',h.ctx);
  assert.equal(typeof timeoutFn,'function');
+ runInContext('visitorConnectionDeadline=Date.now()-1',h.ctx);
  timeoutFn();
  assert.equal(runInContext('call',h.ctx),null);
  assert.equal(h.peerConnections.at(-1).closed,true);
@@ -292,10 +293,27 @@ test('resident closes an unrecoverable network session while preserving normal r
  assert.equal(runInContext('activeCall',h.ctx),'abc');
  runInContext('peer.connectionState="failed";startResidentConnectionGrace()',h.ctx);
  assert.equal(typeof timeoutFn,'function');
+ runInContext('residentConnectionDeadline=Date.now()-1',h.ctx);
  timeoutFn();
  assert.equal(runInContext('activeCall',h.ctx),null);
  assert.equal(h.peerConnections.at(-1).closed,true);
  assert.equal(h.element('#active-audio').hidden,true);
+});
+
+test('visible reconnection countdown updates and is removed on recovery',()=>{
+ const visitor=browserHarness('interfone.js');
+ let callback=null;
+ visitor.ctx.setTimeout=fn=>{callback=fn;return 10};
+ visitor.ctx.setInterval=()=>20;
+ visitor.ctx.clearTimeout=()=>{};
+ visitor.ctx.clearInterval=()=>{};
+ runInContext('call="abc";startVisitorConnectionGrace("webrtc_disconnected")',visitor.ctx);
+ assert.equal(visitor.element('#visitor-reconnect-status').hidden,false);
+ assert.equal(visitor.element('#visitor-reconnect-status').textContent,'Reconectando… 15 s');
+ runInContext('visitorConnectionDeadline=Date.now()+5500;updateVisitorConnectionCountdown()',visitor.ctx);
+ assert.equal(visitor.element('#visitor-reconnect-status').textContent,'Reconectando… 6 s');
+ runInContext('clearVisitorConnectionGrace(true)',visitor.ctx);
+ assert.equal(visitor.element('#visitor-reconnect-status').hidden,true);
 });
 
 test('both Android and visitor surfaces recheck deadlines after focus and network recovery',()=>{
