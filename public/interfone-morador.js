@@ -215,6 +215,8 @@ function clearPopup(){
  stopRing();currentRing=null;
  closeNativeIncoming(old);
  if($('#incoming-dialog').open)$('#incoming-dialog').close();
+ if(!activeCall)document.body.classList.remove('nexus-call-open');
+ if(!activeCall)document.title='NexusMaster | Central de interfone';
 }
 function dismissPush(id){
  navigator.serviceWorker?.controller?.postMessage({type:'nexus-dismiss-intercom',callId:id});
@@ -228,8 +230,12 @@ function renderIncoming(c){
  $('#incoming-unit').textContent='Destino: '+c.label;
  $('#incoming-reason').textContent='Motivo: '+(reasons[c.reason]||'Chamada na entrada');
  $('#incoming-countdown').textContent='Tempo restante: '+Math.max(0,c.expires-now)+' segundos';
+ // Always open the incoming call as a full-screen modal, even if the user
+ // is currently viewing the dashboard or the Android WebView restored a page.
+ if(!$('#incoming-dialog').open)$('#incoming-dialog').showModal();
+ document.body.classList.add('nexus-call-open');
  if(isNew){
-  if(!$('#incoming-dialog').open)$('#incoming-dialog').showModal();
+  $('#incoming-answer').focus?.();
   startRing();
   if(navigator.vibrate)navigator.vibrate([250,130,250]);
   document.title='📞 Chamada da Portaria — NexusMaster';
@@ -280,7 +286,10 @@ async function act(c,kind,mode='video'){
    resetResidentControls();
    startResidentTimer(answerResult.expires);
    clearPopup();dismissPush(c.id);
-   $('#active-audio').hidden=false;$('#active-audio-label').textContent='Conectando a '+c.label+'...';
+   $('#active-audio').hidden=false;
+   document.body.classList.add('nexus-call-open');
+   document.title='📞 Em ligação com a Portaria — NexusMaster';
+   $('#active-audio-label').textContent='Conectando a '+c.label+'...';
    $('#resident-call-mode').textContent=residentReceiveVideo?'📹 Atendimento com vídeo da portaria':'🎙️ Atendimento somente com áudio';
    resetInboundAudioDiagnostics();
    $('#video-status').textContent=residentReceiveVideo?'Verificando transmissão de vídeo da portaria...':'Modo somente áudio: a câmera da portaria não será exibida.';
@@ -405,6 +414,8 @@ async function hangup(reason='manual'){
  const remoteVideo=$('#remote-video');remoteVideo.pause();remoteVideo.srcObject=null;remoteVideo.hidden=true;
  $('#video-status').textContent='Vídeo encerrado.';
  $('#active-audio').hidden=true;
+ document.body.classList.remove('nexus-call-open');
+ document.title='NexusMaster | Central de interfone';
  resetResidentControls();
  // Server independently expires the conversation after 90 seconds.
  await post('calls/'+id+'/hangup',{}).catch(()=>{});
@@ -540,5 +551,8 @@ document.addEventListener('visibilitychange',()=>{
 });
 window.addEventListener('focus',()=>{
  if(validUser()&&nexusNative())syncNativeNotificationUi();
+ // The native Android call Activity can return to an existing WebView tab.
+ // Refresh the pending call and reopen the full-screen answer dialog.
+ if(validUser()&&!activeCall)refresh();
 });
 setup();
