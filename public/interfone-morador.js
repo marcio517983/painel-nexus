@@ -1,22 +1,46 @@
 const $=s=>document.querySelector(s);
+const residentDiag=window.NexusCallDiagnostics?.create('morador','#resident-diagnostics-output','#resident-diagnostics-copy')||
+ {start(){},event(){},finish(){},render(){}};
+
 const reasons={entrega:'Entrega ou encomenda',visita:'Visita pessoal',servico:'Prestação de serviço',outro:'Outro assunto'};
 const notice=s=>$('#notice').textContent=s;
 let profile,activeCall=null,peer=null,stream=null,currentRing=null,ringInterval=null,alertCtx=null,pollBusy=false,processing=false;
 let residentTalkEndsAt=0,residentTalkInterval=null,residentSpeakerEnabled=true;
-let residentConnectionGraceTimer=null;
+let residentConnectionGraceTimer=null,residentConnectionTicker=null,residentConnectionDeadline=0;
 const RESIDENT_RECONNECT_GRACE_MS=15000;
-function clearResidentConnectionGrace(){
+function clearResidentConnectionGrace(recovered=false){
+ const interruptedAt=residentConnectionDeadline?residentConnectionDeadline-RESIDENT_RECONNECT_GRACE_MS:0;
  if(residentConnectionGraceTimer!==null){clearTimeout(residentConnectionGraceTimer);residentConnectionGraceTimer=null;}
+ if(residentConnectionTicker!==null){clearInterval(residentConnectionTicker);residentConnectionTicker=null;}
+ residentConnectionDeadline=0;
+ const status=$('#resident-reconnect-status');
+ if(status)status.hidden=true;
+ if(recovered&&interruptedAt){
+  residentDiag.event('conexao_restaurada',String(Math.max(0,Math.floor((Date.now()-interruptedAt)/1000)))+'s');
+  notice('Conexão com a portaria recuperada.');
+ }
 }
-function startResidentConnectionGrace(){
- if(!activeCall||residentConnectionGraceTimer!==null)return;
- const id=activeCall;
- notice('Conexão interrompida. Tentando recuperar o áudio e vídeo por até 15 segundos...');
- residentConnectionGraceTimer=setTimeout(()=>{
-  residentConnectionGraceTimer=null;
-  if(activeCall!==id||peer?.connectionState==='connected')return;
-  hangup('network');
- },RESIDENT_RECONNECT_GRACE_MS);
+function expireResidentConnection(){
+ if(!activeCall||!residentConnectionDeadline)return;
+ if(Date.now()<residentConnectionDeadline)return;
+ residentDiag.event('reconexao_esgotada','15s');
+ void hangup('network');
+}
+function updateResidentConnectionCountdown(){
+ if(!activeCall||!residentConnectionDeadline)return;
+ if(Date.now()>=residentConnectionDeadline){expireResidentConnection();return;}
+ const remaining=Math.max(0,Math.ceil((residentConnectionDeadline-Date.now())/1000));
+ const el=$('#resident-reconnect-status');
+ if(el){el.hidden=false;el.textContent='Reconectando… '+remaining+' s';}
+}
+function startResidentConnectionGrace(reason='webrtc'){
+ if(!activeCall||residentConnectionDeadline)return;
+ residentConnectionDeadline=Date.now()+RESIDENT_RECONNECT_GRACE_MS;
+ residentDiag.event('conexao_interrompida',reason);
+ notice('Conexão interrompida. Tentando recuperar sem reiniciar o tempo da chamada.');
+ updateResidentConnectionCountdown();
+ residentConnectionTicker=setInterval(updateResidentConnectionCountdown,1000);
+ residentConnectionGraceTimer=setTimeout(expireResidentConnection,RESIDENT_RECONNECT_GRACE_MS);
 }
 
 let residentReceiveVideo=true;
@@ -327,6 +351,8 @@ async function act(c,kind,mode='video'){
    residentReceiveVideo=mode==='video';
    const answerResult=await post('calls/'+c.id+'/answer',{});
    stream=localStream;localStream=null;activeCall=c.id;
+   residentDiag.start(mode==='video'?'modo_video':'somente_audio');
+   residentDiag.event('chamada_atendida','limite_90s');
    resetResidentControls();
    startResidentTimer(answerResult.expires);
    clearPopup();dismissPush(c.id);
@@ -424,11 +450,13 @@ async function connectAudio(id){
   if(activeCall!==id||peer!==currentPeer)return;
   const state=currentPeer.connectionState;
   if(state==='connected'){
-   clearResidentConnectionGrace();
+   if(residentConnectionDeadline&&Date.now()>=residentConnectionDeadline){expireResidentConnection();return;}
+   residentDiag.event('conexao_estabelecida','webrtc');
+   clearResidentConnectionGrace(true);
    $('#active-audio-label').textContent='Em comunicação';
    notice('Áudio conectado.');
   }else if(state==='failed'||state==='disconnected'){
-   startResidentConnectionGrace();
+   startResidentConnectionGrace('webrtc_'+state);
   }
  };
  let offer=null;
@@ -456,6 +484,7 @@ async function connectAudio(id){
 async function hangup(reason='manual'){
  const id=activeCall;
  if(!id)return;
+ residentDiag.finish(reason);
  clearResidentConnectionGrace();
  stopResidentTimer();
  residentReceiveVideo=true;
@@ -474,7 +503,7 @@ async function hangup(reason='manual'){
  // the best-effort hangup request takes a long time to complete.
  notice(reason==='limit'?'Tempo máximo de 1 minuto e 30 segundos atingido.':
         reason==='remote'?'O visitante encerrou a chamada.':
-        reason==='network'?'Ligação encerrada: rede indisponível por mais de 15 segundos.':'Chamada encerrada.');
+        reason==='network'?'Ligação encerrada: conexão não recuperada em 15 segundos.':'Chamada encerrada.');
  // The authoritative server deadline will expire regardless of request success.
  void post('calls/'+id+'/hangup',{}).catch(()=>{});
  void refresh();
@@ -609,10 +638,13 @@ function resumeResidentCall(){
  if(!activeCall)return;
  updateResidentTimer();
  if(!activeCall)return;
- if(peer&&['failed','disconnected'].includes(peer.connectionState))startResidentConnectionGrace();
+ updateResidentConnectionCountdown();
+ if(!activeCall)return;
+ if(peer&&['failed','disconnected'].includes(peer.connectionState))startResidentConnectionGrace('webrtc_'+peer.connectionState);
  void syncActiveCall();
 }
 document.addEventListener('visibilitychange',()=>{
+ if(activeCall)residentDiag.event(document.hidden?'segundo_plano':'primeiro_plano','android');
  if(document.hidden)return;
  if(validUser()&&nexusNative())syncNativeNotificationUi();
  if(activeCall)resumeResidentCall();
@@ -624,8 +656,11 @@ window.addEventListener('focus',()=>{
  else if(validUser())refresh();
 });
 window.addEventListener('pageshow',()=>{if(activeCall)resumeResidentCall();});
-window.addEventListener('online',()=>{if(activeCall)resumeResidentCall();});
+window.addEventListener('online',()=>{
+ if(activeCall){residentDiag.event('internet_restaurada','navigator_online');resumeResidentCall();}
+});
 window.addEventListener('offline',()=>{
- if(activeCall)startResidentConnectionGrace();
+ if(activeCall){residentDiag.event('internet_indisponivel','navigator_offline');
+  startResidentConnectionGrace('navigator_offline');}
 });
 setup();
