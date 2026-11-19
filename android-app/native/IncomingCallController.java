@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.SharedPreferences;
 import android.content.Context;
 import android.content.Intent;
 import android.media.AudioAttributes;
@@ -23,6 +24,41 @@ public final class IncomingCallController {
     public static final String EXTRA_REASON = "nexus_reason";
     public static final String EXTRA_EXPIRES = "nexus_expires";
     public static final String EXTRA_OPEN_CALL = "nexus_open_call";
+    // The one-tap decision is recorded ONLY after a button press inside this
+    // application's non-exported IncomingCallActivity. External intents, QR
+    // parameters and notification payloads cannot manufacture this choice.
+    private static final String ACTION_PREFS = "nexus_native_call_choice_v1";
+    private static final String ACTION_ID = "call_id";
+    private static final String ACTION_MODE = "choice";
+    private static final String ACTION_EXPIRES = "expires";
+
+    private static boolean isValidChoice(String action) {
+        return "video".equals(action)||"audio".equals(action)||"decline".equals(action);
+    }
+    public static synchronized boolean recordUserAction(Context context,String id,String action,long expires) {
+        final long now=System.currentTimeMillis()/1000L;
+        if(!isValidId(id)||!isValidChoice(action)||expires<=now||expires>now+45L)return false;
+        return context.getSharedPreferences(ACTION_PREFS,Context.MODE_PRIVATE).edit()
+            .putString(ACTION_ID,id)
+            .putString(ACTION_MODE,action)
+            .putLong(ACTION_EXPIRES,expires)
+            .commit();
+    }
+    /**
+     * Consume at most once. The WebView must verify session, unit permission,
+     * ringing status and the call deadline with the server before acting.
+     */
+    public static synchronized String[] consumeUserAction(Context context) {
+        SharedPreferences pref=context.getSharedPreferences(ACTION_PREFS,Context.MODE_PRIVATE);
+        final String id=pref.getString(ACTION_ID,null);
+        final String action=pref.getString(ACTION_MODE,null);
+        final long expires=pref.getLong(ACTION_EXPIRES,0L);
+        pref.edit().clear().commit();
+        final long now=System.currentTimeMillis()/1000L;
+        if(!isValidId(id)||!isValidChoice(action)||expires<=now||expires>now+45L)return null;
+        return new String[]{id,action};
+    }
+
 
     public static boolean isValidId(String id) {
         return id != null && id.matches("(?i)^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$");
