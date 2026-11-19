@@ -6,6 +6,7 @@ const reasons={entrega:'Entrega ou encomenda',visita:'Visita pessoal',servico:'P
 const notice=s=>$('#notice').textContent=s;
 let profile,activeCall=null,peer=null,stream=null,currentRing=null,ringInterval=null,alertCtx=null,pollBusy=false,processing=false;
 let residentTalkEndsAt=0,residentTalkInterval=null,residentSpeakerEnabled=true;
+let residentOfferTag=null,residentNegotiating=false,residentSignalBusy=false;
 let residentConnectionGraceTimer=null,residentConnectionTicker=null,residentConnectionDeadline=0;
 const RESIDENT_RECONNECT_GRACE_MS=15000;
 function clearResidentConnectionGrace(recovered=false){
@@ -337,7 +338,7 @@ async function refresh(){
    $('#calls').append(box);
   }
   if(!activeCall&&!processing){const focus=new URLSearchParams(location.search).get('call');const next=calls.find(c=>c.id===focus)||calls[0];if(next)renderIncoming(next);}
-  if(activeCall)await syncActiveCall();
+  if(activeCall){await syncActiveCall();void checkResidentRenegotiation();}
  }catch(e){notice(e.message)}finally{pollBusy=false;}
 }
 async function act(c,kind,mode='video'){
@@ -409,6 +410,25 @@ async function completeIce(pc){
   pc.addEventListener('icegatheringstatechange',change);
  }),sleep(4500)]);
 }
+async function checkResidentRenegotiation(){
+ if(!activeCall||!peer||residentSignalBusy||residentNegotiating||peer.signalingState!=='stable')return;
+ residentSignalBusy=true;
+ const id=activeCall,pc=peer;
+ try{
+  const d=await req('calls/'+id+'/signal');
+  if(activeCall!==id||peer!==pc||!d.offer||!d.offerTag||d.offerTag===residentOfferTag)return;
+  residentNegotiating=true;
+  try{
+   await pc.setRemoteDescription(d.offer);
+   const answer=await pc.createAnswer();
+   await pc.setLocalDescription(answer);await completeIce(pc);
+   await req('calls/'+id+'/signal',{method:'POST',headers:{'Content-Type':'application/json','x-intercom-offer':d.offerTag},body:JSON.stringify(pc.localDescription)});
+   residentOfferTag=d.offerTag;
+   residentDiag.event('resposta_reconexao_enviada','webrtc');
+  }finally{residentNegotiating=false;}
+ }catch(e){residentDiag.event('falha_resposta_reconexao',String(e.message||e).slice(0,90));}
+ finally{residentSignalBusy=false;}
+}
 async function connectAudio(id){
  if(!stream||activeCall!==id)return;
  peer=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
@@ -463,12 +483,12 @@ async function connectAudio(id){
    startResidentConnectionGrace('webrtc_'+state);
   }
  };
- let offer=null;
+ let offer=null,offerTag=null;
  // Fast negotiation while the call is active. A short poll interval improves
  // pickup speed without changing the normal idle call-check cadence.
  for(let i=0;i<55&&activeCall===id;i++){
   const d=await req('calls/'+id+'/signal');
-  if(d.offer){offer=d.offer;break}
+  if(d.offer){offer=d.offer;offerTag=d.offerTag;break}
   await sleep(650);
  }
  if(!offer||activeCall!==id)throw Error('Oferta de áudio indisponível');
@@ -483,7 +503,8 @@ async function connectAudio(id){
   $('#video-status').textContent='Câmera da portaria indisponível neste teste. Áudio permanece ativo.';
  }
  const answer=await peer.createAnswer();await peer.setLocalDescription(answer);await completeIce(peer);
- await post('calls/'+id+'/signal',peer.localDescription);
+ await req('calls/'+id+'/signal',{method:'POST',headers:{'Content-Type':'application/json','x-intercom-offer':offerTag},body:JSON.stringify(peer.localDescription)});
+ residentOfferTag=offerTag;
 }
 async function hangup(reason='manual'){
  const id=activeCall;
@@ -493,7 +514,7 @@ async function hangup(reason='manual'){
  stopResidentTimer();
  residentReceiveVideo=true;
  resetInboundAudioDiagnostics();
- activeCall=null;peer?.close();peer=null;
+ activeCall=null;residentOfferTag=null;peer?.close();peer=null;
  stream?.getTracks().forEach(t=>t.stop());stream=null;
  releaseNativeSpeaker();
  $('#remote-audio').pause();$('#remote-audio').srcObject=null;
