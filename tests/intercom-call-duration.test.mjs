@@ -11,6 +11,9 @@ test('conversation expires exactly 90 seconds after answered, independent of the
  assert.match(server,/const answeredAt=now\(\),expires=talkExpiry\(answeredAt\)/);
  assert.match(server,/created\+30/);
  assert.doesNotMatch(server,/now\(\)\+300/);
+ assert.match(server,/status='answered' AND expires>\? AND offer_sdp IS NULL/);
+ assert.match(server,/status='answered' AND expires>\? AND answer_sdp IS NULL/);
+
 });
 test('both call screens expose countdown and media controls, and never show a gate opener',()=>{
  const v=readFileSync(new URL('../public/interfone.html',import.meta.url),'utf8');
@@ -24,7 +27,7 @@ test('both call screens expose countdown and media controls, and never show a ga
  for(const id of ['resident-talk-clock','resident-mute','resident-speaker','hangup'])assert.match(r,new RegExp('id="'+id+'"'));
  assert.match(visitor,/startVisitorTimer\(s.expires\)/);
  assert.match(resident,/startResidentTimer\(answerResult.expires\)/);
- assert.ok(resident.includes("await post('calls/'+id+'/hangup'"));
+ assert.ok(resident.includes("post('calls/'+id+'/hangup'"));
  assert.doesNotMatch(r,/id="open-gate"|id="open-door"/);
 });
 test('server answer returns the authoritative deadline of a maximum 90-second call',async()=>{
