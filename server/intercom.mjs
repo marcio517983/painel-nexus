@@ -1,0 +1,360 @@
+import {createHash, randomBytes, randomUUID} from 'node:crypto';
+import {identity, query, now} from './auth.mjs';
+import {nexusOriginAllowed} from './preview-origin.mjs';
+import {endpointHash,validSubscription,pushConfigured,sendWebPush} from './intercom-push.mjs';
+import {fcmTokenHash,validFcmToken,fcmConfigured,sendFcmCall} from './intercom-fcm.mjs';
+import {validLatLon,validateIntercomPosition,INTERCOM_RADIUS_METERS,INTERCOM_MAX_ACCURACY_METERS,INTERCOM_MAX_POSITION_AGE_MS} from './intercom-geofence.mjs';
+import {pilotNetworkStatus,authorizePilotNetwork,revokePilotNetwork,isPilotNetworkEnv} from './intercom-pilot-network.mjs';
+import {pilotGpsBypass} from './intercom-pilot-gps.mjs';
+import {INTERCOM_TALK_MAX_SECONDS,talkExpiry} from './intercom-duration.mjs';
+
+const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+const digest=s=>createHash('sha256').update(String(s)).digest('hex');
+const token=()=>randomBytes(32).toString('hex');
+const originOk=(r,env)=>nexusOriginAllowed(r,env);
+const safeId=s=>/^[a-zA-Z0-9_-]{1,64}$/.test(s||'');
+const intercomEnabled=async(env,cid,config)=>{
+ if(typeof config?.services?.porteiroCloud==='boolean')return config.services.porteiroCloud;
+ // Existing tenants are treated as enabled only when their intercom was set up.
+ // Other NexusMaster customers must explicitly activate the paid module.
+ return Boolean(await query(env,'SELECT id FROM intercom_units WHERE client_id=? LIMIT 1',cid).first());
+};
+const units=async(env,cid)=> (await query(env,'SELECT id,label FROM intercom_units WHERE client_id=? AND enabled=1 ORDER BY label LIMIT 100',cid).all()).results;
+const row=async(env,id)=>query(env,'SELECT * FROM intercom_calls WHERE id=?',id).first();
+const active=async(env,id)=>{const c=await row(env,id);if(!c)return null;if(c.status==='answered'&&c.expires<=now()){await query(env,"UPDATE intercom_calls SET status='ended',ended_at=? WHERE id=? AND status='answered'",now(),id).run();return {...c,status:'ended'};}if(c.status==='ringing'&&c.expires<=now()){await query(env,"UPDATE intercom_calls SET status='missed',ended_at=? WHERE id=? AND status='ringing'",now(),id).run();return {...c,status:'missed'};}return c;};
+const publicState=c=>({id:c.id,status:c.status,createdAt:c.created_at,expires:c.expires,answeredAt:c.answered_at||null,endedAt:c.ended_at||null,hasAnswer:!!c.answer_sdp});
+const validRole=u=>u&&['morador','sindico'].includes(u.role);
+const permitted=async(env,u,unitId)=> !!(await query(env,'SELECT 1 FROM intercom_unit_members WHERE client_id=? AND unit_id=? AND user_id=?',u.clientId,unitId,u.id).first())||u.role==='sindico';
+// A larger limit applies ONLY to the explicitly isolated, fictional Preview pilot.
+export const intercomPilotRatePolicy=env=>({
+ pilot:env.VERCEL_ENV==='preview'&&env.NEXUS_PREVIEW_SCHEMA_INIT==='1'&&
+  env.TURSO_DATABASE_URL==='libsql://nexusmaster-teste-marcio517983.aws-us-east-1.turso.io',
+ limit:env.VERCEL_ENV==='preview'&&env.NEXUS_PREVIEW_SCHEMA_INIT==='1'&&
+  env.TURSO_DATABASE_URL==='libsql://nexusmaster-teste-marcio517983.aws-us-east-1.turso.io'?20:5
+});
+const rate=async(env,key,limit=5,windowSeconds=600)=>{
+ const stamp=now(),bucket=Math.floor(stamp/windowSeconds);
+ await query(env,'DELETE FROM intercom_rate_limits WHERE key=? AND bucket<?',key,bucket-2).run();
+ const r=await query(env,'INSERT INTO intercom_rate_limits(key,bucket,n) VALUES(?,?,1) ON CONFLICT(key,bucket) DO UPDATE SET n=n+1 RETURNING n',key,bucket).first();
+ return {allowed:Number(r.n)<=limit,retryAfterSeconds:windowSeconds-(stamp%windowSeconds)};
+};
+async function notifyResidents(env,clientId,unitId,reason,callId,expires,destinationLabel){
+ if(!pushConfigured(env))return;
+ try{
+  const rows=(await query(env,`SELECT p.endpoint,p.p256dh,p.auth,p.endpoint_hash,p.user_id
+   FROM intercom_push_subscriptions p
+   JOIN intercom_unit_members m ON m.client_id=p.client_id AND m.user_id=p.user_id
+   WHERE p.client_id=? AND m.unit_id=? LIMIT 24`,clientId,unitId).all()).results;
+  if(!rows.length)return;
+  const payload={kind:'intercom',callId,expires,reason,unitId,destinationLabel:String(destinationLabel||'Residência').slice(0,80),entranceLabel:'Portaria'};
+  await Promise.allSettled(rows.map(async row=>{
+   const result=await sendWebPush(env,{endpoint:row.endpoint,keys:{p256dh:row.p256dh,auth:row.auth}},payload);
+   if([404,410].includes(result.status)){
+    await query(env,'DELETE FROM intercom_push_subscriptions WHERE client_id=? AND user_id=? AND endpoint_hash=?',clientId,row.user_id,row.endpoint_hash).run().catch(()=>{});
+   }
+  }));
+ }catch{/* A falha em Push nunca cancela a chamada do visitante. */}
+}
+async function notifyFcmResidents(env,clientId,unitId,reason,callId,expires,label){
+ if(!fcmConfigured(env))return;
+ try{
+  const rows=(await query(env,`SELECT f.token,f.token_hash FROM intercom_fcm_tokens f
+   JOIN intercom_unit_members m ON m.client_id=f.client_id AND m.user_id=f.user_id
+   WHERE m.client_id=? AND m.unit_id=? LIMIT 24`,clientId,unitId).all()).results;
+  if(!rows.length)return;
+  await Promise.allSettled(rows.map(async recipient=>{
+   const result=await sendFcmCall(env,recipient.token,{id:callId,expires,unitId,label,reason});
+   if([404,410].includes(result.status)){
+    await query(env,'DELETE FROM intercom_fcm_tokens WHERE token_hash=?',recipient.token_hash).run().catch(()=>{});
+   }
+  }));
+ }catch{/* Never prevent visitor call if Android Push is unavailable. */}
+}
+async function payloadSignal(r){const text=await r.text();if(text.length>70000)throw Error('Sinalização muito grande');const b=JSON.parse(text);if(!['offer','answer'].includes(b?.type)||typeof b.sdp!=='string'||b.sdp.length>65000)throw Error('Sinalização inválida');return {type:b.type,sdp:b.sdp};}
+async function payload(r,maxSize=1500){const txt=await r.text();if(txt.length>maxSize)throw Error('Corpo muito grande');return JSON.parse(txt);}
+export async function intercom(r,env){
+ try{
+  const p=new URL(r.url).pathname.split('/').filter(Boolean).slice(2); // /api/intercom/...
+  const method=r.method;
+  if(!['GET','POST'].includes(method))return json({message:'Método não permitido'},405);
+  if(method==='POST'&&!originOk(r,env))return json({message:'Origem inválida'},403);
+  if(p[0]==='public'){
+   const cid=p[1];if(!safeId(cid))return json({message:'Condomínio inválido'},400);
+   const client=await query(env,'SELECT data FROM clients WHERE id=?',cid).first();
+   if(!client)return json({message:'Interfone indisponível'},404);
+    const publicConfig=JSON.parse(client.data);
+    if(publicConfig.archived===true||!await intercomEnabled(env,cid,publicConfig))return json({message:'Interfone indisponível'},404);
+   if(p[2]==='units'&&method==='GET'){
+    const entrance=await query(env,'SELECT enabled FROM intercom_entrances WHERE client_id=?',cid).first();
+    const pilot=await pilotNetworkStatus(env,cid,r);
+    const gpsPilot=pilotGpsBypass(env,cid);
+    return json({name:JSON.parse(client.data).name,units:await units(env,cid),
+      radiusMeters:INTERCOM_RADIUS_METERS,locationRequired:!gpsPilot.enabled,locationReady:!!entrance&&Number(entrance.enabled)===1,
+      pilotGpsTestEnabled:gpsPilot.enabled,pilotGpsTestExpiresAt:gpsPilot.expiresAt,
+      pilotNetworkTestSupported:pilot.supported,pilotNetworkTestAllowed:pilot.allowed,pilotNetworkTestExpiresAt:pilot.expiresAt});
+   }
+   if(p[2]==='calls'&&p.length===3&&method==='POST'){
+    const b=await payload(r),unitId=String(b.unitId||''),reason=String(b.reason||'');
+    if(!/^[a-zA-Z0-9_-]{1,64}$/.test(unitId)||!['entrega','visita','servico','outro'].includes(reason))return json({message:'Escolha uma unidade e o motivo'},400);
+    // Preview-only and explicitly selected: resident authorized this SAME outgoing
+    // public IP temporarily. Never treat IP matching as proof of proximity.
+    const gpsPilot=pilotGpsBypass(env,cid);
+    const pilot= !gpsPilot.enabled&&b.pilotNetworkTest===true ? await pilotNetworkStatus(env,cid,r) : {allowed:false};
+    const usingPilot=gpsPilot.enabled||pilot.allowed===true;
+    const entrance=usingPilot?null:await query(env,'SELECT latitude,longitude,enabled FROM intercom_entrances WHERE client_id=?',cid).first();
+    const geo=usingPilot?{ok:true,reason:'isolated-preview-test'}:validateIntercomPosition(entrance,b.location);
+    if(!geo.ok){
+     const errors={
+      not_configured:['A portaria ainda não cadastrou sua localização. Interfone indisponível.',409],
+      invalid:['Autorize a localização precisa para chamar o apartamento.',403],
+      stale:['Localização antiga. Atualize o GPS e tente novamente.',403],
+      imprecise:['O GPS está impreciso (acima de 20 metros). Vá para uma área aberta e tente novamente.',422],
+      outside:['Você precisa estar a até 20 metros da portaria para utilizar o interfone.',403]
+     };
+     const [message,status]=errors[geo.reason]||['Localização não autorizada.',403];
+     return json({message},status);
+    }
+    // Location is evaluated for this call only: do not store visitor coordinates.
+    const ip=(r.headers.get('x-vercel-forwarded-for')||r.headers.get('x-forwarded-for')||'unknown').split(',')[0].trim().slice(0,100);
+    const policy=intercomPilotRatePolicy(env);
+    // The pilot uses its own rate bucket to avoid inheriting counters from the old five-call limit.
+    const budget=await rate(env,digest((policy.pilot?'intercom-pilot-v2:':'')+cid+':'+ip),policy.limit);
+    if(!budget.allowed)return json({message:'Limite temporário de chamadas atingido.',retryAfterSeconds:budget.retryAfterSeconds},429);
+    const u=await query(env,'SELECT id,label FROM intercom_units WHERE client_id=? AND id=? AND enabled=1',cid,unitId).first();
+    if(!u)return json({message:'Unidade indisponível'},404);
+    // Keep a short anti-spam limit even in the higher-volume pilot, per unit and source IP.
+    if(policy.pilot){
+     const short=await rate(env,digest('intercom-pilot-minute:'+cid+':'+unitId+':'+ip),6,60);
+     if(!short.allowed)return json({message:'Muitas chamadas seguidas para esta residência.',retryAfterSeconds:short.retryAfterSeconds},429);
+    }
+    const pending=await query(env,"SELECT id FROM intercom_calls WHERE client_id=? AND unit_id=? AND status='ringing' AND expires>?",cid,unitId,now()).first();
+    if(pending)return json({message:'Esta unidade está recebendo outra chamada.'},409);
+    const id=randomUUID(),secret=token(),created=now();
+    await query(env,'INSERT INTO intercom_calls(id,client_id,unit_id,reason,token_hash,status,created_at,expires) VALUES(?,?,?,?,?,?,?,?)',id,cid,unitId,reason,digest(secret),'ringing',created,created+30).run();
+    await Promise.allSettled([
+     notifyResidents(env,cid,unitId,reason,id,created+30,u.label),
+     notifyFcmResidents(env,cid,unitId,reason,id,created+30,u.label)
+    ]);
+    return json({callId:id,callToken:secret,status:'ringing',expires:created+30},201);
+   }
+   if(p[2]==='calls'&&p[3]&&['offer','answer'].includes(p[4])){
+    const c=await active(env,p[3]);if(!c||c.client_id!==cid||!r.headers.get('authorization')?.startsWith('Bearer ')||digest(r.headers.get('authorization').slice(7))!==c.token_hash)return json({message:'Chamada não encontrada'},404);
+    if(c.status!=='answered')return json({message:'Chamada não atendida'},409);
+    if(method==='GET'&&p[4]==='answer')return json({sdp:c.answer_sdp?JSON.parse(c.answer_sdp):null});
+    if(method==='POST'&&p[4]==='offer'){
+      const b=await payloadSignal(r);if(b.type!=='offer')return json({message:'Oferta inválida'},400);
+      const replacing=Boolean(c.offer_sdp);
+       if(replacing&&!c.answer_sdp)return json({message:'Negociação anterior pendente'},409);
+       const updated=await query(env,replacing?
+        "UPDATE intercom_calls SET offer_sdp=?,answer_sdp=NULL WHERE id=? AND status='answered' AND expires>? AND offer_sdp=? AND answer_sdp=? RETURNING id":
+        "UPDATE intercom_calls SET offer_sdp=? WHERE id=? AND status='answered' AND expires>? AND offer_sdp IS NULL RETURNING id",
+        ...(replacing?[JSON.stringify(b),c.id,now(),c.offer_sdp,c.answer_sdp]:[JSON.stringify(b),c.id,now()])).first();
+      return updated?json({ok:true}):json({message:'Oferta já enviada'},409);
+    }
+   }
+   if(p[2]==='calls'&&p[3]&&method==='GET'){
+    const c=await active(env,p[3]);if(!c||c.client_id!==cid||!r.headers.get('authorization')?.startsWith('Bearer ')||digest(r.headers.get('authorization').slice(7))!==c.token_hash)return json({message:'Chamada não encontrada'},404);
+    return json(publicState(c));
+   }
+   if(p[2]==='calls'&&p[3]&&p[4]==='cancel'&&method==='POST'){
+    const c=await active(env,p[3]);if(!c||c.client_id!==cid||!r.headers.get('authorization')?.startsWith('Bearer ')||digest(r.headers.get('authorization').slice(7))!==c.token_hash)return json({message:'Chamada não encontrada'},404);
+    await query(env,"UPDATE intercom_calls SET status='ended',ended_at=? WHERE id=? AND status IN ('ringing','answered')",now(),c.id).run();
+    return json({ok:true});
+   }
+   return json({message:'Rota inexistente'},404);
+  }
+  const u=await identity(r,env);
+  if(p[0]==='admin'&&p[1]==='clients'&&p[2]){
+   const cid=p[2];
+   if(!safeId(cid)||!u||!['master','sindico'].includes(u.role)||
+      (u.role==='sindico'&&u.clientId!==cid))return json({message:'Acesso não autorizado'},403);
+   const row=await query(env,'SELECT data FROM clients WHERE id=?',cid).first();
+   if(!row)return json({message:'Cliente inexistente'},404);
+   const config=JSON.parse(row.data);
+   if(config.archived===true)return json({message:'Cliente arquivado'},409);
+   const action=p[3]||'';
+   if(method==='GET'&&!action){
+    const residences=(await query(env,'SELECT id,label,enabled FROM intercom_units WHERE client_id=? ORDER BY label LIMIT 100',cid).all()).results;
+    const links=(await query(env,'SELECT unit_id,user_id FROM intercom_unit_members WHERE client_id=?',cid).all()).results;
+    const users=(config.users||[]).filter(x=>['morador','sindico'].includes(x.role))
+      .map(x=>({id:x.id,name:x.name,email:x.email,role:x.role,active:x.active===true}));
+    return json({clientId:cid,clientName:config.name,enabled:await intercomEnabled(env,cid,config),
+      residences:residences.map(x=>({...x,members:links.filter(m=>m.unit_id===x.id).map(m=>m.user_id)})),users,
+      legacyMode:config.services?.porteiroCloud===undefined});
+   }
+   if(method==='POST'&&action==='subscription'&&u.role==='master'){
+    const b=await payload(r,250);
+    if(typeof b.enabled!=='boolean')return json({message:'Estado inválido'},400);
+    const updated=JSON.parse(row.data);
+    updated.services={...(updated.services||{}),porteiroCloud:b.enabled};
+    const saved=await query(env,'UPDATE clients SET data=? WHERE id=? AND data=? RETURNING id',
+      JSON.stringify(updated),cid,row.data).first();
+    if(!saved)return json({message:'Cadastro alterado simultaneamente; atualize a página'},409);
+    if(!b.enabled){
+     await query(env,"UPDATE intercom_calls SET status='ended',ended_at=? WHERE client_id=? AND status IN ('ringing','answered')",now(),cid).run();
+    }
+    return json({ok:true,enabled:b.enabled});
+   }
+   if(method==='POST'&&action==='residences'){
+    const b=await payload(r),id=String(b.id||''),label=String(b.label||'').trim();
+    if(!safeId(id)||label.length<2||label.length>55)return json({message:'Código ou nome inválido'},400);
+    const existing=await query(env,'SELECT id FROM intercom_units WHERE client_id=? AND id=?',cid,id).first();
+    if(existing)return json({message:'Esse código já está cadastrado'},409);
+    const count=await query(env,'SELECT COUNT(*) AS n FROM intercom_units WHERE client_id=?',cid).first();
+    if(Number(count?.n||0)>=100)return json({message:'Limite atual de 100 residências atingido'},409);
+    await query(env,'INSERT INTO intercom_units(client_id,id,label,enabled) VALUES(?,?,?,1)',cid,id,label).run();
+    return json({ok:true},201);
+   }
+   if(method==='POST'&&(action==='link'||action==='unlink')){
+    const b=await payload(r),unitId=String(b.unitId||''),userId=String(b.userId||'');
+    if(!safeId(unitId)||!safeId(userId))return json({message:'Vínculo inválido'},400);
+    const unit=await query(env,'SELECT id FROM intercom_units WHERE client_id=? AND id=?',cid,unitId).first();
+    const user=(config.users||[]).find(x=>x.id===userId&&x.active===true&&['morador','sindico'].includes(x.role));
+    if(!unit||!user)return json({message:'Residência ou morador ativo não encontrado'},404);
+    if(action==='link')await query(env,'INSERT OR IGNORE INTO intercom_unit_members(client_id,unit_id,user_id) VALUES(?,?,?)',cid,unitId,userId).run();
+    else await query(env,'DELETE FROM intercom_unit_members WHERE client_id=? AND unit_id=? AND user_id=?',cid,unitId,userId).run();
+    return json({ok:true});
+   }
+   return json({message:'Operação administrativa não autorizada'},403);
+  }
+  if(u&&u.role!=='master'&&!await intercomEnabled(env,u.clientId,u.client))return json({message:'Porteiro Cloud não contratado'},403);
+  if(p[0]==='pilot-network'&&['GET','POST'].includes(method)){
+   // Isolated demo only, never exposed for a real condo or production.
+   if(!u||!validRole(u)||!isPilotNetworkEnv(env,u.clientId))return json({message:'Modo de testes indisponível.'},404);
+   if(!await permitted(env,u,'apto-102'))return json({message:'Você não está autorizado a este apartamento.'},403);
+   if(method==='GET')return json(await pilotNetworkStatus(env,u.clientId,r));
+   const b=await payload(r,128);
+   if(b.enabled===false)return json(await revokePilotNetwork(env,u.clientId,r));
+   return json(await authorizePilotNetwork(env,u.clientId,r,u.id));
+  }
+  if(p[0]==='entrance'&&['GET','POST'].includes(method)){
+   if(!u||!['master','sindico'].includes(u.role))return json({message:'Apenas a administração pode configurar a portaria.'},403);
+   const cid=u.role==='master'?new URL(r.url).searchParams.get('central'):u.clientId;
+   if(!safeId(cid))return json({message:'Condomínio inválido.'},400);
+   if(!await query(env,'SELECT id FROM clients WHERE id=?',cid).first())return json({message:'Condomínio inexistente.'},404);
+   if(method==='GET'){
+    const entrance=await query(env,'SELECT latitude,longitude,enabled,updated_at FROM intercom_entrances WHERE client_id=?',cid).first();
+    return json({configured:!!entrance&&Number(entrance.enabled)===1,entrance:entrance||null,radiusMeters:INTERCOM_RADIUS_METERS,accuracyRequiredMeters:INTERCOM_MAX_ACCURACY_METERS});
+   }
+   const b=await payload(r),latitude=b?.latitude,longitude=b?.longitude;
+   if(!validLatLon(latitude,longitude)||
+      typeof b.accuracy!=='number'||!Number.isFinite(b.accuracy)||b.accuracy<=0||
+      b.accuracy>INTERCOM_MAX_ACCURACY_METERS||
+      typeof b.timestamp!=='number'||!Number.isFinite(b.timestamp)||
+      Math.abs(Date.now()-b.timestamp)>INTERCOM_MAX_POSITION_AGE_MS){
+     return json({message:'Posição de configuração inválida, antiga ou imprecisa. Faça a captura com GPS preciso na portaria.'},422);
+   }
+   await query(env,`INSERT INTO intercom_entrances(client_id,latitude,longitude,enabled,updated_at,updated_by)
+    VALUES(?,?,?,1,?,?) ON CONFLICT(client_id) DO UPDATE SET latitude=excluded.latitude,
+    longitude=excluded.longitude,enabled=1,updated_at=excluded.updated_at,updated_by=excluded.updated_by`,
+    cid,latitude,longitude,now(),u.role==='master'?'master':u.id).run();
+   return json({configured:true,radiusMeters:INTERCOM_RADIUS_METERS});
+  }
+  if(!validRole(u))return json({message:'Entre como morador ou síndico'},401);
+  if(p[0]==='fcm'){
+   if(p[1]==='status'&&method==='GET'){
+    const devices=(await query(env,'SELECT COUNT(*) AS n FROM intercom_fcm_tokens WHERE client_id=? AND user_id=?',u.clientId,u.id).first())?.n||0;
+    return json({devices:Number(devices),deliveryConfigured:fcmConfigured(env)});
+   }
+   if(p[1]==='register'&&method==='POST'){
+    const b=await payload(r,5000);
+    if(!validFcmToken(b.token))return json({message:'Token Firebase inválido'},400);
+    const hash=fcmTokenHash(b.token);
+    // A single Android installation can be assigned to only one account.
+    await query(env,'DELETE FROM intercom_fcm_tokens WHERE token_hash=?',hash).run();
+    await query(env,'INSERT INTO intercom_fcm_tokens(token_hash,token,client_id,user_id,created_at,updated_at) VALUES(?,?,?,?,?,?)',
+     hash,b.token,u.clientId,u.id,now(),now()).run();
+    // Keep registration bounded and remove very stale devices.
+    await query(env,'DELETE FROM intercom_fcm_tokens WHERE updated_at<?',now()-90*86400).run();
+    return json({ok:true,deliveryConfigured:fcmConfigured(env)},201);
+   }
+   if(p[1]==='unregister'&&method==='POST'){
+    const b=await payload(r,5000);
+    if(!validFcmToken(b.token))return json({message:'Token Firebase inválido'},400);
+    await query(env,'DELETE FROM intercom_fcm_tokens WHERE token_hash=? AND client_id=? AND user_id=?',
+     fcmTokenHash(b.token),u.clientId,u.id).run();
+    return json({ok:true});
+   }
+   return json({message:'Rota inexistente'},404);
+  }
+  if(p[0]==='push'){
+   if(p[1]==='key'&&method==='GET')return pushConfigured(env)?json({publicKey:env.NEXUS_VAPID_PUBLIC_KEY}):json({message:'Notificações não configuradas.'},503);
+   if(p[1]==='subscribe'&&method==='POST'){
+    const b=await payload(r,4096);
+    if(!validSubscription(b))return json({message:'Assinatura de notificações inválida.'},400);
+    const hash=endpointHash(b.endpoint);
+    // A assinatura identifica uma instalação do navegador, não pode pertencer a dois usuários.
+    await query(env,'DELETE FROM intercom_push_subscriptions WHERE endpoint_hash=?',hash).run();
+    await query(env,`INSERT INTO intercom_push_subscriptions
+     (client_id,user_id,endpoint_hash,endpoint,p256dh,auth,created_at)
+     VALUES(?,?,?,?,?,?,?)`,u.clientId,u.id,hash,b.endpoint,b.keys.p256dh,b.keys.auth,now()).run();
+    return json({ok:true},201);
+   }
+   if(p[1]==='unsubscribe'&&method==='POST'){
+    const b=await payload(r,4096);
+    if(typeof b.endpoint!=='string'||b.endpoint.length>2048)return json({message:'Assinatura inválida.'},400);
+    await query(env,'DELETE FROM intercom_push_subscriptions WHERE client_id=? AND user_id=? AND endpoint_hash=?',u.clientId,u.id,endpointHash(b.endpoint)).run();
+    return json({ok:true});
+   }
+   return json({message:'Rota inexistente'},404);
+  }
+  if(p[0]==='units'){
+   if(method==='GET'){
+    const rows=await query(env,'SELECT id,label,enabled FROM intercom_units WHERE client_id=? ORDER BY label',u.clientId).all();
+    return json({units:rows.results});
+   }
+   if(method==='POST'&&u.role==='sindico'){
+    const b=await payload(r),unitId=String(b.id||''),label=String(b.label||'').trim();
+    if(!safeId(unitId)||label.length<2||label.length>55)return json({message:'Unidade inválida'},400);
+    await query(env,'INSERT INTO intercom_units(client_id,id,label,enabled) VALUES(?,?,?,1) ON CONFLICT(client_id,id) DO UPDATE SET label=excluded.label,enabled=1',u.clientId,unitId,label).run();
+    return json({ok:true},201);
+   }
+  }
+  if(p[0]==='members'&&method==='POST'&&u.role==='sindico'){
+   const b=await payload(r),unitId=String(b.unitId||''),userId=String(b.userId||'');
+   if(!safeId(unitId)||!safeId(userId))return json({message:'Cadastro inválido'},400);
+   const unit=await query(env,'SELECT 1 FROM intercom_units WHERE client_id=? AND id=?',u.clientId,unitId).first();
+   const target=u.client.users.find(x=>x.id===userId&&x.active&&['morador','sindico'].includes(x.role));
+   if(!unit||!target)return json({message:'Unidade ou morador inexistente'},404);
+   await query(env,'INSERT OR IGNORE INTO intercom_unit_members(client_id,unit_id,user_id) VALUES(?,?,?)',u.clientId,unitId,userId).run();return json({ok:true},201);
+  }
+  if(p[0]==='calls'&&p.length===1&&method==='GET'){
+   await query(env,"UPDATE intercom_calls SET status='missed',ended_at=? WHERE client_id=? AND status='ringing' AND expires<=?",now(),u.clientId,now()).run();
+   const calls=(await query(env,"SELECT c.id,c.unit_id,c.reason,c.status,c.created_at,c.expires,u.label FROM intercom_calls c JOIN intercom_units u ON u.client_id=c.client_id AND u.id=c.unit_id WHERE c.client_id=? AND c.status='ringing' AND ( ?='sindico' OR EXISTS(SELECT 1 FROM intercom_unit_members m WHERE m.client_id=c.client_id AND m.unit_id=c.unit_id AND m.user_id=?)) ORDER BY c.created_at DESC LIMIT 15",u.clientId,u.role,u.id).all()).results;
+   return json({calls});
+  }
+  if(p[0]==='calls'&&p[1]&&p[2]==='status'&&method==='GET'){
+   const c=await active(env,p[1]);
+   if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id))return json({message:'Chamada não autorizada'},403);
+   return json({status:c.status,expires:c.expires,maxTalkSeconds:INTERCOM_TALK_MAX_SECONDS});
+  }
+  if(p[0]==='calls'&&p[1]&&p[2]==='signal'&&method==='GET'){
+   const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id)||c.status!=='answered'||c.answered_by!==u.id)return json({message:'Chamada não autorizada'},403);
+   return json({offer:c.offer_sdp?JSON.parse(c.offer_sdp):null,offerTag:c.offer_sdp?digest(c.offer_sdp):null});
+  }
+  if(p[0]==='calls'&&p[1]&&p[2]==='signal'&&method==='POST'){
+   const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id)||c.status!=='answered'||c.answered_by!==u.id)return json({message:'Chamada não autorizada'},403);
+   const b=await payloadSignal(r);if(b.type!=='answer')return json({message:'Resposta inválida'},400);
+   const expectedOffer=r.headers.get('x-intercom-offer');
+    if(!expectedOffer||digest(c.offer_sdp||'')!==expectedOffer)return json({message:'Oferta mudou; resposta descartada'},409);
+    const updated=await query(env,"UPDATE intercom_calls SET answer_sdp=? WHERE id=? AND status='answered' AND expires>? AND answer_sdp IS NULL AND offer_sdp=? RETURNING id",JSON.stringify(b),c.id,now(),c.offer_sdp).first();
+   return updated?json({ok:true}):json({message:'Resposta já enviada'},409);
+  }
+  if(p[0]==='calls'&&p[1]&&p[2]==='hangup'&&method==='POST'){
+   const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id)||c.answered_by!==u.id)return json({message:'Chamada não autorizada'},403);
+   await query(env,"UPDATE intercom_calls SET status='ended',ended_at=? WHERE id=? AND status='answered'",now(),c.id).run();return json({ok:true});
+  }
+  if(p[0]==='calls'&&p[1]&&p[2]==='answer'&&method==='POST'){
+   const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id))return json({message:'Chamada não autorizada'},403);
+   const answeredAt=now(),expires=talkExpiry(answeredAt);
+   const result=await query(env,"UPDATE intercom_calls SET status='answered',answered_at=?,answered_by=?,expires=? WHERE id=? AND status='ringing' AND expires>? RETURNING id",answeredAt,u.id,expires,c.id,answeredAt).first();
+   return result?json({ok:true,status:'answered',expires,maxTalkSeconds:INTERCOM_TALK_MAX_SECONDS}):json({message:'Chamada encerrada ou já atendida'},409);
+  }
+  if(p[0]==='calls'&&p[1]&&p[2]==='decline'&&method==='POST'){
+   const c=await active(env,p[1]);if(!c||c.client_id!==u.clientId||!await permitted(env,u,c.unit_id))return json({message:'Chamada não autorizada'},403);
+   await query(env,"UPDATE intercom_calls SET status='declined',ended_at=? WHERE id=? AND status='ringing'",now(),c.id).run();
+   return json({ok:true});
+  }
+  return json({message:'Rota inexistente'},404);
+ }catch(e){return json({message:'Não foi possível processar esta solicitação.'},400);}
+}
