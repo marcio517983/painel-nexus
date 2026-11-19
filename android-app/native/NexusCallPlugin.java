@@ -48,6 +48,22 @@ public class NexusCallPlugin extends Plugin {
         }
         call.resolve();
     }
+    /**
+     * Return at most one direct video/audio/decline choice made in the
+     * non-exported native call Activity. Query parameters cannot trigger it.
+     * The WebView must check the active authenticated server-side call.
+     */
+    @PluginMethod
+    public void consumePendingCallAction(PluginCall call) {
+        String[] decision=IncomingCallController.consumeUserAction(getContext());
+        JSObject result=new JSObject();
+        if(decision!=null) {
+            result.put("callId",decision[0]);
+            result.put("action",decision[1]);
+        }
+        call.resolve(result);
+    }
+
     @PluginMethod
     public void showIncoming(PluginCall call){
         String id=call.getString("callId"),label=call.getString("label"),
