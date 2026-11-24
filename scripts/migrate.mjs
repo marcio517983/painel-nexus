@@ -6,5 +6,7 @@ await db.batch(statements,'write');
 if(process.env.VERCEL_ENV==='preview'&&process.env.NEXUS_PREVIEW_SCHEMA_INIT==='1'){
  const {seedPreviewIntercom}=await import('./seed-preview-intercom.mjs');
  await seedPreviewIntercom(db);
+ const {seedDemoCondominio}=await import('./seed-demo-condominio.mjs');
+ await seedDemoCondominio(db);
 }
 console.log('Estrutura atualizada; cadastros explicitamente simulados arquivados; clientes físicos preservados.');db.close();
