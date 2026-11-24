@@ -1,0 +1,17 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Instalar aplicativo · NexusMaster</title><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#132c46"><link rel="icon" href="/icons/nexusmaster-192.png">
+<style>body{font-family:system-ui,sans-serif;background:#0c1c2c;color:#ecf6ff;margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px;box-sizing:border-box}main{width:min(480px,100%);background:#142f47;padding:26px;border:1px solid #3b6783;border-radius:20px;box-sizing:border-box}h1{font-size:26px}.muted{color:#b9cedd;line-height:1.55}button,.button{display:block;text-align:center;width:100%;box-sizing:border-box;background:#18856e;color:white;border:0;border-radius:10px;padding:15px;margin:15px 0;text-decoration:none;font-size:16px;font-weight:700;cursor:pointer}a{color:#b5dcff}.steps{line-height:1.8}#appname{font-weight:bold}</style></head><body><main>
+<img src="/icons/nexusmaster-192.png" width="72" height="72" alt="NexusMaster">
+<h1>Instalar NexusMaster</h1><p class="muted">Aplicativo dos moradores · Porteiro Cloud</p>
+<p id="condo" class="muted"></p>
+<button type="button" data-pwa-install>Instalar aplicativo</button>
+<a id="open" class="button" href="/">Entrar no aplicativo</a>
+<p class="muted">O NexusMaster é instalado como aplicativo web (PWA), com ícone próprio e acesso pela tela inicial. Não é um arquivo APK.</p>
+<div class="steps"><strong>Se não aparecer a instalação:</strong>
+<p>Android: abra esta página no Chrome e toque em <b>⋮ → Instalar aplicativo</b> ou <b>Adicionar à tela inicial</b>.</p>
+<p>iPhone: abra no Safari, toque em <b>Compartilhar → Adicionar à Tela de Início</b>.</p></div>
+<p class="muted">Para receber chamadas, entre com a conta da residência e permita as notificações. Recursos em segundo plano dependem do navegador e do aparelho.</p></main>
+<script>
+const id=new URLSearchParams(location.search).get('central')||'';
+if(/^[a-zA-Z0-9_-]{1,64}$/.test(id)){document.querySelector('#condo').textContent='Condomínio: '+id;document.querySelector('#open').href='/?central='+encodeURIComponent(id);}
+</script><script src="/pwa.js" defer></script></body></html>
