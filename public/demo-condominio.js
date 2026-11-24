@@ -107,7 +107,15 @@ $('#create').onclick=async()=>{
  $('#result').hidden=true;
  try{await setup();}
  catch(error){
-  log('ERRO: '+error.message);
+  if(/Entre para continuar|Faça login|Administrador Master/.test(error.message)){
+   log('Faça login como Master neste mesmo endereço antes de preparar o condomínio.');
+   const link=document.createElement('a');
+   link.href='/?next='+encodeURIComponent('/demo-condominio.html');
+   link.textContent='Entrar como Master e voltar ao cadastro';
+   $('#progress').append(document.createElement('br'),link);
+  }else{
+   log('ERRO: '+error.message);
+  }
   if(clientId)log('Se parte do processo foi salva, não clique novamente sem verificar o cliente '+clientId+'.');
  }finally{$('#create').disabled=true;}
 };
