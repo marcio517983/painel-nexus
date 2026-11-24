@@ -1,0 +1,135 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NexusMaster | Central de interfone</title><link rel="stylesheet" href="/morador.css"><style>main{max-width:660px;margin:auto;padding:24px}section{border:1px solid #8a9eaa44;border-radius:14px;padding:18px;margin:16px 0}input,select{width:100%;padding:10px;margin:7px 0 15px}button{padding:12px;border:0;border-radius:9px;cursor:pointer;background:#147baf;color:#fff;font-weight:600;margin:5px}.danger{background:#934442}.muted{opacity:.75}.entry{border-bottom:1px solid #aaa4;padding:14px 0}code{overflow-wrap:anywhere}label{display:block}
+.intercom-modal{border:1px solid #4f7798;border-radius:22px;padding:26px;width:min(420px,calc(100% - 32px));background:#102b45;color:#f1f8fc;box-shadow:0 24px 90px #0009;text-align:center}
+.intercom-modal::backdrop{background:#05111bce}.intercom-modal h2{font-size:23px;margin:10px 0}.intercom-modal p{line-height:1.5}
+.intercom-modal .bell{font-size:45px;animation:ringicon 1.4s infinite}
+.intercom-modal .buttons{display:flex;justify-content:space-evenly;gap:12px;flex-wrap:wrap}
+.intercom-modal .buttons button{flex:1 1 100%;margin:2px 0}.intercom-modal .buttons .danger{flex:1}
+.intercom-modal button{padding:13px 24px}.intercom-modal .accept{background:#248658}
+#notification-help{border:1px solid #3d6787;border-radius:12px;padding:14px;margin:14px 0;background:#173850}
+#notification-help button{margin:8px 0}
+#active-audio{border:1px solid #237958;background:#102b28;border-radius:12px;padding:18px;margin:16px 0}
+#remote-video{width:100%;max-height:65vh;aspect-ratio:16/9;object-fit:contain;background:#020a11;border-radius:12px;margin:12px 0}#remote-video[hidden]{display:none}#video-status{font-size:14px;color:#bde1f5}
+#active-audio .call-timer{font-size:30px;font-weight:850;letter-spacing:.04em;text-align:center;color:#b9efce;margin:10px auto 4px}
+#active-audio .call-timer.warning{color:#ffc09b}
+#active-audio .call-limit{text-align:center;color:#b0c8cb;font-size:13px}
+#active-audio .call-tools{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+#active-audio .call-tools button{min-height:58px;padding:10px 7px;font-size:14px;margin:0}
+#active-audio .call-tools [aria-pressed=true]{background:#8c4e2a}
+#active-audio #hangup{width:100%;min-height:54px;margin-top:8px}
+#active-audio [hidden]{display:none}
+@keyframes ringicon{0%,100%{transform:rotate(0deg)}20%{transform:rotate(15deg)}40%{transform:rotate(-15deg)}60%{transform:rotate(8deg)}80%{transform:rotate(-8deg)}}
+@media(prefers-reduced-motion:reduce){.intercom-modal .bell{animation:none}}
+
+/* Full-screen, WhatsApp-style call surface: never require scrolling the dashboard
+   to see an incoming or active call. Retain safe-area padding on Android. */
+html,body{min-height:100%;overscroll-behavior:none}
+body.nexus-call-open{overflow:hidden}
+.intercom-modal[open]{position:fixed;inset:0;margin:0;padding:calc(16px + env(safe-area-inset-top,0px)) 20px calc(24px + env(safe-area-inset-bottom,0px));
+ width:100%;max-width:none;max-height:none;height:100dvh;box-sizing:border-box;border:0;border-radius:0;
+ display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:0;
+ background:linear-gradient(160deg,#102f48 0%,#091c30 62%,#061622 100%);color:#eff8ff;
+ overflow-y:auto;box-shadow:none;z-index:3001}
+.intercom-modal::backdrop{background:#06121ef2}
+.call-screen-header{width:100%;display:flex;align-items:center;justify-content:space-between;
+ gap:12px;text-align:left;padding:4px 0 15px;flex-wrap:wrap}
+.call-screen-brand{font-size:12px;font-weight:850;letter-spacing:.14em;color:#b2d8ef}
+.call-ring-indicator,.call-live-indicator{font-size:11px;font-weight:800;letter-spacing:.06em;color:#9cebb6}
+.call-ring-indicator{color:#a5defd}
+.intercom-modal .incoming-content{flex:1;display:flex;flex-direction:column;align-items:stretch;
+ justify-content:center;width:min(480px,100%);margin:0 auto;min-height:0}
+.intercom-modal .bell{font-size:68px;margin:10px auto 24px;width:124px;height:124px;
+ display:grid;place-items:center;border:2px solid #3d7897;border-radius:50%;background:#16415c}
+.intercom-modal h2{font-size:clamp(25px,7vw,38px);margin:8px 0 16px}
+.intercom-modal #incoming-unit{font-size:20px;color:#eff8ff}
+.intercom-modal #incoming-reason{font-size:15px;color:#bcd1df}
+.intercom-modal .incoming-timer{color:#d9e8f2;font-size:17px;font-variant-numeric:tabular-nums}
+.intercom-modal .buttons{display:grid;grid-template-columns:1fr 1fr;gap:12px;width:100%;
+ margin:18px 0 8px}
+.intercom-modal .buttons button{min-height:64px;margin:0;padding:13px 12px;font-size:15px}
+.intercom-modal .buttons .accept{background:#1a8358;border:1px solid #61c998}
+.intercom-modal .buttons #incoming-answer{grid-column:1 / -1}
+.intercom-modal .buttons #incoming-answer-audio{grid-column:1}
+.intercom-modal .buttons .danger{grid-column:2;background:#9c4653}
+#active-audio:not([hidden]){position:fixed;inset:0;margin:0;box-sizing:border-box;
+ height:100dvh;width:100%;max-width:none;overflow-y:auto;z-index:2999;
+ border:0;border-radius:0;display:flex;flex-direction:column;
+ padding:calc(15px + env(safe-area-inset-top,0px)) 18px calc(20px + env(safe-area-inset-bottom,0px));
+ background:linear-gradient(165deg,#10374b 0%,#071d2d 55%,#071522 100%);color:#ecf8ff}
+#active-audio .call-screen-title{font-size:clamp(25px,7vw,35px);text-align:center;margin:7px 0 0}
+#active-audio #active-audio-label,#active-audio #resident-call-mode{text-align:center;margin:5px 0;color:#cee4ed}
+#active-audio #resident-talk-clock{margin:8px auto 1px;font-size:37px;font-variant-numeric:tabular-nums}
+#active-audio .call-limit{margin:2px auto 9px}
+#active-audio .call-media{flex:1;min-height:75px;display:flex;flex-direction:column;
+ align-items:center;justify-content:center;width:100%;overflow:hidden;gap:5px}
+#active-audio .call-media p{text-align:center;font-size:13px;margin:4px}
+#active-audio #remote-video{max-height:min(42dvh,420px);width:100%;max-width:640px;
+ flex:0 1 auto;object-fit:contain;margin:4px auto}
+#active-audio .call-actions{width:min(620px,100%);margin:auto auto 0}
+#active-audio .call-tools{margin:10px auto}
+#active-audio .call-tools button{border-radius:16px;font-size:14px}
+#active-audio #hangup{background:#bb3747;border-radius:18px;min-height:65px}
+#active-audio #enable-visitor-audio{width:100%;margin:0 0 5px}
+@media(max-height:610px){
+ .intercom-modal .bell{width:82px;height:82px;font-size:45px;margin:5px auto 10px}
+ .intercom-modal .incoming-content{justify-content:flex-start}
+ .intercom-modal .buttons{margin:8px 0}
+ .intercom-modal .buttons button{min-height:55px}
+ #active-audio .call-media{min-height:35px}
+ #active-audio #remote-video{max-height:27dvh}
+}
+#resident-reconnect-status:not([hidden]){display:block;text-align:center;font-size:20px;font-weight:800;color:#ffc69d;margin:7px 0}.intercom-diagnostics{border:1px solid #8aafc744;border-radius:12px;padding:15px;margin:18px 0}.intercom-diagnostics summary{cursor:pointer;font-weight:700}.intercom-diagnostics pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:240px;overflow:auto}.intercom-diagnostics button{margin:8px 0}</style><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#132c46"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="NexusMaster"><link rel="apple-touch-icon" href="/icons/nexusmaster-192.png"><link rel="icon" type="image/png" sizes="192x192" href="/icons/nexusmaster-192.png"></head><body><main><header><a href="/" class="brand">⌘ NEXUSMASTER</a></header><h1>Central de interfone</h1><button type="button" data-pwa-install hidden>Instalar NexusMaster</button><p><a href="/morador.html">Voltar aos meus acessos</a></p><p id="intercom-description">Atenda às chamadas da sua residência no navegador. Mantenha esta página aberta durante o piloto.</p><p id="notice" role="status" aria-live="polite"></p>
+<section id="notification-help">
+<strong>Alertas de interfone</strong>
+<p id="notification-status">Ative as notificações para receber avisos de chamadas no celular, inclusive com o PWA instalado.</p>
+<button type="button" id="enable-notifications">Ativar notificações</button>
+<p class="muted" id="notification-explainer">O Android pode solicitar permissão. A entrega depende das configurações do aparelho e da conexão; não equivale a uma ligação telefônica nativa.</p>
+</section>
+<section id="pilot-network-panel" hidden>
+<h2>Teste pela mesma rede</h2>
+<p class="muted">Exclusivo do condomínio piloto. Autorize por 15 minutos para o notebook chamar usando a mesma saída de internet, sem exigir o GPS da portaria. Isso não confirma proximidade física.</p>
+<p id="pilot-network-status" role="status">Verificando rede de teste...</p>
+<button id="pilot-network-toggle" type="button">Autorizar teste nesta rede por 15 min</button>
+<p class="muted">Depois de autorizar, atualize a página do visitante no notebook. Mantenha ambos no mesmo Wi-Fi e desative VPN/dados móveis durante o teste.</p>
+</section>
+<section id="active-audio" hidden aria-label="Chamada em andamento">
+<div class="call-screen-header"><span class="call-screen-brand">◈ NEXUSMASTER</span><span class="call-live-indicator">● CHAMADA ATIVA</span></div>
+<h2 class="call-screen-title">Portaria</h2>
+<p id="active-audio-label">Interfone conectado ao visitante</p>
+<p id="resident-call-mode" class="muted">Atendimento com vídeo da portaria</p>
+<p id="resident-talk-clock" class="call-timer" role="timer">01:30</p>
+<p class="call-limit">A ligação termina automaticamente após 1 min 30 s.</p>
+<p id="resident-reconnect-status" role="status" hidden>Reconectando… 15 s</p>
+<div class="call-media">
+<p id="video-status" role="status">Verificando se a portaria está enviando vídeo...</p>
+<video id="remote-video" autoplay muted playsinline hidden aria-label="Vídeo ao vivo da portaria"></video>
+<p id="visitor-audio-status" role="status">Aguardando áudio do visitante...</p>
+</div>
+<div class="call-actions">
+<div class="call-tools"><button id="resident-mute" type="button" aria-pressed="false">🎙️ Silenciar microfone</button><button id="resident-speaker" type="button" aria-pressed="true" hidden>🔊 Viva-voz ligado</button></div>
+<button id="enable-visitor-audio" type="button" hidden>🔊 Ouvir visitante</button>
+<button class="danger" id="hangup" type="button">📵 Encerrar chamada</button>
+</div>
+<audio id="remote-audio" autoplay playsinline></audio>
+</section>
+<details class="intercom-diagnostics" id="resident-diagnostics-panel"><summary>Diagnóstico da última chamada (testes)</summary>
+<p class="muted">Registra somente horários, mudanças de rede e motivo do encerramento neste aparelho por até 48 horas; não grava áudio nem vídeo.</p>
+<button type="button" id="resident-diagnostics-copy">Copiar diagnóstico</button>
+<pre id="resident-diagnostics-output">Nenhum teste registrado.</pre>
+</details>
+<section><h2>Chamadas recebidas</h2><div id="calls">Consultando...</div></section><dialog id="incoming-dialog" class="intercom-modal" aria-labelledby="incoming-title" aria-describedby="incoming-unit">
+<div class="call-screen-header"><span class="call-screen-brand">◈ NEXUSMASTER</span><span class="call-ring-indicator">● CHAMADA RECEBIDA</span></div>
+<div class="incoming-content">
+<div class="bell" aria-hidden="true">📞</div>
+<h2 id="incoming-title">Chamada da Portaria</h2>
+<p id="incoming-unit">Apartamento</p>
+<p id="incoming-reason">Motivo da visita</p>
+<p id="incoming-countdown" class="incoming-timer" aria-live="off">Aguardando atendimento...</p>
+<p class="muted">Escolha se deseja ver a câmera da portaria. Em nenhum modo o visitante recebe sua imagem.</p>
+<div class="buttons">
+<button id="incoming-answer" class="accept" type="button">📹 Atender com vídeo</button>
+<button id="incoming-answer-audio" class="accept" type="button">🎙️ Somente áudio</button>
+<button id="incoming-decline" class="danger" type="button">📵 Recusar chamada</button>
+</div>
+</div>
+</dialog>
+<section id="setup" hidden><h2>Configurar residências (síndico)</h2><p class="muted">A configuração GPS e a liberação futura de portões pelo videoporteiro ficarão reservadas ao Master.</p><label>Código interno <input id="unitId" placeholder="ex.: apto-102" maxlength="64"></label><label>Nome exibido ao visitante<input id="unitLabel" placeholder="Apartamento 102" maxlength="55"></label><button id="addUnit">Cadastrar residência</button><label>Residências cadastradas<select id="units"></select></label><label>ID do morador cadastrado no NexusMaster<input id="userId" placeholder="ID do usuário" maxlength="64"></label><button id="addMember">Vincular morador</button><p class="muted">O síndico obtém o ID do morador no cadastro existente do painel Master. O QR Code deverá apontar para <code id="qrurl"></code>.</p></section><p class="muted">Ao atender, o NexusMaster solicita acesso ao microfone e inicia a ligação. Escolha vídeo da portaria ou somente áudio. Nenhum portão pode ser acionado por esta tela nesta etapa.</p></main><script src="/intercom-diagnostics.js"></script><script type="module" src="/interfone-morador.js"></script><script src="/pwa.js" defer></script></body></html>

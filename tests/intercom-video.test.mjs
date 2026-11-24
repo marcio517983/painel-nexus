@@ -1,0 +1,341 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {createContext,runInContext,Script} from 'node:vm';
+
+function browserHarness(filename){
+ const source=readFileSync(new URL('../public/'+filename,import.meta.url),'utf8');
+ new Script(source,{filename}); // Browser syntax must remain valid.
+ const nodes=new Map();
+ function element(selector){
+  if(!nodes.has(selector)){
+   nodes.set(selector,{
+    hidden:false,disabled:false,srcObject:null,textContent:'',value:'',
+    open:false,classList:{add(){},remove(){},toggle(){}},
+    setAttribute(){},addEventListener(){},replaceChildren(){},append(){},
+    play(){this.played=true;return Promise.resolve();},pause(){this.paused=true;},
+    close(){this.open=false;},showModal(){this.open=true;}
+   });
+  }
+  return nodes.get(selector);
+ }
+ class Track{
+  constructor(kind){this.kind=kind;this.readyState='live';this.handlers={};}
+  stop(){this.readyState='ended';}
+  addEventListener(event,cb){this.handlers[event]=cb;}
+ }
+ class MediaStream{
+  constructor(tracks=[]){this.tracks=tracks;}
+  getTracks(){return this.tracks;}
+  getAudioTracks(){return this.tracks.filter(t=>t.kind==='audio');}
+  getVideoTracks(){return this.tracks.filter(t=>t.kind==='video');}
+ }
+ const webcam=new MediaStream([new Track('video')]);
+ const mic=new MediaStream([new Track('audio')]);
+ const captures=[];
+ const peerConnections=[];
+ class Peer{
+  constructor(){this.iceGatheringState='complete';this.connectionState='connected';this.added=[];this.transceivers=[];this.localDescription={type:'offer',sdp:'v=0'};peerConnections.push(this);}
+  addTrack(track,media){this.added.push({kind:track.kind,media});}
+  close(){this.closed=true;}
+  async createOffer(){return {type:'offer',sdp:'v=0'};}
+  async createAnswer(){return {type:'answer',sdp:'v=0'};}
+  async setLocalDescription(desc){this.localDescription=desc;}
+  async setRemoteDescription(desc){this.remoteDescription=desc;this.transceivers=desc.sdp?.includes('m=video')?[{receiver:{track:new Track('video')},direction:'recvonly'}]:[];}
+  getTransceivers(){return this.transceivers;}
+ }
+ const remoteVideoOffer={type:'offer',sdp:'v=0\\r\\nm=video 9 UDP/TLS/RTP/SAVPF 96'};
+ const bodyClasses=new Set();
+ const body={append(){},classList:{
+  add(value){bodyClasses.add(value);},remove(value){bodyClasses.delete(value);},
+  contains(value){return bodyClasses.has(value);}
+ }};
+ const ctx=createContext({
+  window:{addEventListener(){},Capacitor:undefined,isSecureContext:true},
+  document:{querySelector:element,body,addEventListener(){}},
+  navigator:{mediaDevices:{async getUserMedia(options){captures.push(options);return options.video?webcam:mic;}}},
+  location:{search:'',origin:'https://nexus.example'},URLSearchParams,
+  MediaStream,RTCPeerConnection:Peer,Track,Audio:class{constructor(){this.style={};}play(){return Promise.resolve();}setAttribute(){}remove(){}},
+  fetch:async(url,options)=>{
+   const data=String(url).includes('/api/auth/me')?{user:null}:
+    String(url).includes('/signal')&&!options?.method?{offer:remoteVideoOffer}:
+    String(url).includes('/answer')?{sdp:{type:'answer',sdp:'v=0'}}:{ok:true};
+   return {ok:!String(url).includes('/api/auth/me'),json:async()=>data};
+  },
+  setInterval(){},clearInterval(){},setTimeout(){},clearTimeout(){},
+  console,URL,Date,Math,Uint8Array
+ });
+ runInContext(source,ctx);
+ return {ctx,element,bodyClasses,peerConnections,webcam,mic,captures,Track,MediaStream};
+}
+
+test('visitor webcam capture only starts by explicit click and adds video+audio to WebRTC',async()=>{
+ const h=browserHarness('interfone.js');
+ assert.equal(h.captures.length,0,'camera must not start just by opening the visitor page');
+ await h.element('#camera-start').onclick();
+ assert.equal(h.captures.length,1);
+ assert.equal(h.captures[0].audio,false);
+ assert.ok(h.captures[0].video);
+ assert.equal(h.element('#camera-status').textContent.includes('Câmera pronta'),true);
+ runInContext('call="123"; secret="test-call-token";',h.ctx);
+ await runInContext('startAudio()',h.ctx);
+ const peer=h.peerConnections.at(-1);
+ assert.deepEqual(peer.added.map(t=>t.kind),['audio','video']);
+ assert.equal(peer.added[0].media,peer.added[1].media);
+ runInContext('done("ended")',h.ctx);
+ assert.equal(h.webcam.getVideoTracks()[0].readyState,'ended');
+ assert.equal(h.element('#calling-video-status').hidden,true);
+});
+
+test('visitor call stays audio-only when the webcam is off',async()=>{
+ const h=browserHarness('interfone.js');
+ runInContext('call="123"; secret="test-call-token";',h.ctx);
+ await runInContext('startAudio()',h.ctx);
+ const peer=h.peerConnections.at(-1);
+ assert.deepEqual(peer.added.map(t=>t.kind),['audio']);
+ assert.equal(h.captures.length,1);
+ assert.equal(h.captures[0].video,false);
+});
+
+test('resident displays remote video while audio still uses its own element',async()=>{
+ const h=browserHarness('interfone-morador.js');
+ runInContext('activeCall="abc"; stream=new MediaStream([new Track("audio")]);',h.ctx);
+ await runInContext('connectAudio("abc")',h.ctx);
+ const peer=h.peerConnections.at(-1);
+ assert.ok(peer);
+ const remoteStream=new h.MediaStream([new h.Track('video'),new h.Track('audio')]);
+ const videoTrack=remoteStream.getVideoTracks()[0];
+ peer.ontrack({track:videoTrack,streams:[remoteStream]});
+ assert.equal(h.element('#remote-video').hidden,false);
+ // Video must not be attached to the remote audio track on Android WebView.
+ assert.equal(h.element('#remote-video').srcObject.getVideoTracks().length,1);
+ assert.equal(h.element('#remote-video').srcObject.getVideoTracks()[0],videoTrack);
+ assert.equal(h.element('#remote-video').srcObject.getAudioTracks().length,0);
+ assert.equal(h.element('#remote-video').played,true);
+ const audioTrack=remoteStream.getAudioTracks()[0];
+ peer.ontrack({track:audioTrack,streams:[remoteStream]});
+ assert.equal(h.element('#remote-audio').srcObject.getAudioTracks().length,1);
+ assert.equal(h.element('#remote-audio').srcObject.getAudioTracks()[0],audioTrack);
+ assert.equal(h.element('#remote-audio').srcObject.getVideoTracks().length,0);
+ assert.equal(h.element('#remote-audio').played,true);
+ videoTrack.handlers.ended();
+ assert.equal(h.element('#remote-video').hidden,true);
+});
+
+test('resident audio-only rejects video in WebRTC answer and never shows visitor video',async()=>{
+ const h=browserHarness('interfone-morador.js');
+ runInContext('residentReceiveVideo=false;activeCall="abc";stream=new MediaStream([new Track("audio")]);',h.ctx);
+ await runInContext('connectAudio("abc")',h.ctx);
+ const peer=h.peerConnections.at(-1);
+ assert.ok(peer);
+ assert.deepEqual(peer.added.map(item=>item.kind),['audio'],'resident does not capture or send video');
+ assert.equal(peer.getTransceivers()[0].direction,'inactive','video must be rejected at SDP level');
+ const fakeStream=new h.MediaStream([new h.Track('video'),new h.Track('audio')]);
+ peer.ontrack({track:fakeStream.getVideoTracks()[0],streams:[fakeStream]});
+ assert.equal(h.element('#remote-video').srcObject,null);
+ assert.equal(h.element('#remote-video').hidden,true);
+ peer.ontrack({track:fakeStream.getAudioTracks()[0],streams:[fakeStream]});
+ assert.equal(h.element('#remote-audio').srcObject.getAudioTracks().length,1);
+ assert.equal(h.element('#remote-audio').played,true);
+});
+
+test('visitor cannot turn camera off during a live test call',async()=>{
+ const h=browserHarness('interfone.js');
+ await h.element('#camera-start').onclick();
+ runInContext('call="abc";',h.ctx);
+ h.element('#camera-stop').onclick();
+ assert.equal(h.webcam.getVideoTracks()[0].readyState,'live');
+ assert.equal(h.element('#camera-status').textContent.includes('Câmera pronta'),true);
+});
+
+test('incoming Android call occupies a modal without dashboard scrolling',()=>{
+ const h=browserHarness('interfone-morador.js');
+ runInContext('renderIncoming({id:"00000000-0000-4000-8000-000000000001",expires:Math.floor(Date.now()/1000)+25,label:"Apartamento 102",reason:"visita"})',h.ctx);
+ assert.equal(h.element('#incoming-dialog').open,true);
+ assert.equal(h.bodyClasses.has('nexus-call-open'),true);
+ assert.equal(h.element('#incoming-unit').textContent,'Destino: Apartamento 102');
+ runInContext('clearPopup()',h.ctx);
+ assert.equal(h.element('#incoming-dialog').open,false);
+ assert.equal(h.bodyClasses.has('nexus-call-open'),false);
+});
+
+test('incoming and active call have full-height surfaces, safe area and call controls',()=>{
+ const html=readFileSync(new URL('../public/interfone-morador.html',import.meta.url),'utf8');
+ assert.match(html,/\.intercom-modal\[open\]\{position:fixed;inset:0/);
+ assert.match(html,/#active-audio:not\(\[hidden\]\)\{position:fixed;inset:0/);
+ assert.match(html,/height:100dvh/);
+ assert.match(html,/safe-area-inset-bottom/);
+ for(const id of ['incoming-answer','incoming-answer-audio','incoming-decline','resident-mute','resident-speaker','hangup']){
+  assert.match(html,new RegExp('id="'+id+'"'));
+ }
+});
+
+
+test('native Android video or audio choice is consumed once and server-verified before answering',async()=>{
+ for(const mode of ['video','audio']){
+  const h=browserHarness('interfone-morador.js');
+  const id='00000000-0000-4000-8000-000000000001';
+  let consumed=0,accepted=0;
+  h.ctx.window.Capacitor={Plugins:{NexusCall:{
+   async consumePendingCallAction(){consumed++;return consumed===1?{callId:id,action:mode}:{};},
+   async preferSpeaker(){return{selected:true};},
+   async releaseSpeaker(){}
+  }}};
+  h.ctx.fetch=async(url,options={})=>{
+   const path=String(url);
+   if(path.endsWith('/calls')&&!options.method)return{ok:true,json:async()=>({calls:[{id,unit_id:'apto-102',
+    status:'ringing',label:'Apartamento 102',reason:'visita',expires:Math.floor(Date.now()/1000)+25}]})};
+   if(path.endsWith('/'+id+'/answer')&&options.method==='POST'){accepted++;return{ok:true,json:async()=>({expires:Math.floor(Date.now()/1000)+90})};}
+   if(path.endsWith('/'+id+'/signal')&&!options.method)return{ok:true,json:async()=>({offer:{type:'offer',sdp:'v=0\\r\\nm=video 9 UDP/TLS/RTP/SAVPF 96'}})};
+   if(path.endsWith('/'+id+'/status'))return{ok:true,json:async()=>({status:'answered',expires:Math.floor(Date.now()/1000)+90})};
+   return{ok:true,json:async()=>({ok:true})};
+  };
+  runInContext('profile={role:"morador",clientId:"interfone-piloto"}',h.ctx);
+  const result=await runInContext('resumeNativeCallChoice()',h.ctx);
+  assert.equal(result,true);
+  assert.equal(consumed,1);
+  assert.equal(accepted,1,'only one authenticated server answer is submitted');
+  assert.equal(h.element('#active-audio').hidden,false);
+  assert.equal(h.element('#incoming-dialog').open,false,'no second incoming confirmation');
+  assert.equal(runInContext('residentReceiveVideo',h.ctx),mode==='video');
+ }
+});
+
+test('URL call parameter alone does not trigger an automatic answer',async()=>{
+ const h=browserHarness('interfone-morador.js');
+ let answered=0;
+ h.ctx.window.Capacitor={Plugins:{NexusCall:{async consumePendingCallAction(){return{};}}}};
+ h.ctx.fetch=async(url,options={})=>{
+  if(options.method==='POST'&&String(url).endsWith('/answer'))answered++;
+  return{ok:true,json:async()=>({calls:[]})};
+ };
+ runInContext('profile={role:"morador"}',h.ctx);
+ assert.equal(await runInContext('resumeNativeCallChoice()',h.ctx),false);
+ assert.equal(answered,0);
+});
+
+test('native decline is sent to backend instead of merely hiding the Android alert',async()=>{
+ const h=browserHarness('interfone-morador.js');
+ const id='00000000-0000-4000-8000-000000000001';
+ let declines=0;
+ h.ctx.window.Capacitor={Plugins:{NexusCall:{async consumePendingCallAction(){return{callId:id,action:'decline'}}}}};
+ h.ctx.fetch=async(url,options={})=>{
+  const path=String(url);
+  if(path.endsWith('/calls')&&!options.method){
+   return{ok:true,json:async()=>({calls:declines?[]:[{id,status:'ringing',label:'Apartamento 102',
+    reason:'visita',expires:Math.floor(Date.now()/1000)+25}]})};
+  }
+  if(path.endsWith('/'+id+'/decline')&&options.method==='POST')declines++;
+  return{ok:true,json:async()=>({ok:true})};
+ };
+ runInContext('profile={role:"morador"}',h.ctx);
+ assert.equal(await runInContext('resumeNativeCallChoice()',h.ctx),true);
+ assert.equal(declines,1);
+});
+
+test('90-second visitor timer closes WebRTC and camera after suspended browser resumes',()=>{
+ const h=browserHarness('interfone.js');
+ const audio=new h.Track('audio');
+ const video=new h.Track('video');
+ runInContext('call="resume-test";secret="temporary";visitorTalkEndsAt=Math.floor(Date.now()/1000)-2;peer=new RTCPeerConnection()',h.ctx);
+ runInContext('stream=new MediaStream([new Track("audio")])',h.ctx);
+ runInContext('updateVisitorTimer()',h.ctx);
+ assert.equal(runInContext('call',h.ctx),null);
+ assert.equal(h.peerConnections.at(-1).closed,true);
+ assert.equal(h.element('#title').textContent,'Tempo encerrado');
+});
+
+test('90-second resident timer closes media and hides call on Android resume',()=>{
+ const h=browserHarness('interfone-morador.js');
+ runInContext('activeCall="resume-test";residentTalkEndsAt=Math.floor(Date.now()/1000)-2;stream=new MediaStream([new Track("audio")]);peer=new RTCPeerConnection()',h.ctx);
+ runInContext('updateResidentTimer()',h.ctx);
+ assert.equal(runInContext('activeCall',h.ctx),null);
+ assert.equal(h.peerConnections.at(-1).closed,true);
+ assert.equal(h.element('#active-audio').hidden,true);
+ assert.match(h.element('#notice').textContent,/1 minuto e 30 segundos/);
+});
+
+test('visitor recovers a disconnected WebRTC peer before the 15-second grace ends',async()=>{
+ const h=browserHarness('interfone.js');
+ let timeoutFn,waitMs,cleared=false;
+ h.ctx.setTimeout=(fn,ms)=>{timeoutFn=fn;waitMs=ms;return 777};
+ h.ctx.clearTimeout=()=>{cleared=true};
+ runInContext('call="reconnect";secret="temporary";peer=new RTCPeerConnection();peer.connectionState="disconnected";startVisitorConnectionGrace()',h.ctx);
+ assert.equal(waitMs,15000);
+ assert.equal(h.element('#visitor-reconnect-status').textContent,'Reconectando… 15 s');
+ runInContext('peer.connectionState="connected";clearVisitorConnectionGrace()',h.ctx);
+ assert.equal(cleared,true);
+ assert.equal(runInContext('call',h.ctx),'reconnect');
+});
+
+test('visitor closes an unrecoverable P2P session after the 15-second network grace',()=>{
+ const h=browserHarness('interfone.js');
+ let timeoutFn;
+ h.ctx.setTimeout=(fn,ms)=>{timeoutFn=fn;return 777};
+ runInContext('call="reconnect";secret="temporary";stream=new MediaStream([new Track("audio")]);peer=new RTCPeerConnection();peer.connectionState="failed";startVisitorConnectionGrace()',h.ctx);
+ assert.equal(typeof timeoutFn,'function');
+ runInContext('visitorConnectionDeadline=Date.now()-1',h.ctx);
+ timeoutFn();
+ assert.equal(runInContext('call',h.ctx),null);
+ assert.equal(h.peerConnections.at(-1).closed,true);
+ assert.match(h.element('#sub').textContent,/15 segundos/);
+});
+
+test('resident closes an unrecoverable network session while preserving normal re-connection',async()=>{
+ const h=browserHarness('interfone-morador.js');
+ let timeoutFn,waitMs,cleared=false;
+ h.ctx.setTimeout=(fn,ms)=>{timeoutFn=fn;waitMs=ms;return 727};
+ h.ctx.clearTimeout=()=>{cleared=true};
+ runInContext('activeCall="abc";stream=new MediaStream([new Track("audio")]);peer=new RTCPeerConnection();peer.connectionState="disconnected";startResidentConnectionGrace()',h.ctx);
+ assert.equal(waitMs,15000);
+ runInContext('peer.connectionState="connected";clearResidentConnectionGrace()',h.ctx);
+ assert.equal(cleared,true);
+ assert.equal(runInContext('activeCall',h.ctx),'abc');
+ runInContext('peer.connectionState="failed";startResidentConnectionGrace()',h.ctx);
+ assert.equal(typeof timeoutFn,'function');
+ runInContext('residentConnectionDeadline=Date.now()-1',h.ctx);
+ timeoutFn();
+ assert.equal(runInContext('activeCall',h.ctx),null);
+ assert.equal(h.peerConnections.at(-1).closed,true);
+ assert.equal(h.element('#active-audio').hidden,true);
+});
+
+test('visible reconnection countdown updates and is removed on recovery',()=>{
+ const visitor=browserHarness('interfone.js');
+ let callback=null;
+ visitor.ctx.setTimeout=fn=>{callback=fn;return 10};
+ visitor.ctx.setInterval=()=>20;
+ visitor.ctx.clearTimeout=()=>{};
+ visitor.ctx.clearInterval=()=>{};
+ runInContext('call="abc";startVisitorConnectionGrace("webrtc_disconnected")',visitor.ctx);
+ assert.equal(visitor.element('#visitor-reconnect-status').hidden,false);
+ assert.equal(visitor.element('#visitor-reconnect-status').textContent,'Reconectando… 15 s');
+ runInContext('visitorConnectionDeadline=Date.now()+5500;updateVisitorConnectionCountdown()',visitor.ctx);
+ assert.equal(visitor.element('#visitor-reconnect-status').textContent,'Reconectando… 6 s');
+ runInContext('clearVisitorConnectionGrace(true)',visitor.ctx);
+ assert.equal(visitor.element('#visitor-reconnect-status').hidden,true);
+});
+
+test('both Android and visitor surfaces recheck deadlines after focus and network recovery',()=>{
+ const v=readFileSync(new URL('../public/interfone.js',import.meta.url),'utf8');
+ const r=readFileSync(new URL('../public/interfone-morador.js',import.meta.url),'utf8');
+ for(const js of [v,r]){
+  assert.match(js,/window\.addEventListener\('focus'/);
+  assert.match(js,/window\.addEventListener\('pageshow'/);
+  assert.match(js,/window\.addEventListener\('online'/);
+  assert.match(js,/window\.addEventListener\('offline'/);
+  assert.match(js,/document\.addEventListener\('visibilitychange'/);
+ }
+});
+
+test('videoporteiro markup includes distinct camera capture and resident playback controls',()=>{
+ const visitor=readFileSync(new URL('../public/interfone.html',import.meta.url),'utf8');
+ const resident=readFileSync(new URL('../public/interfone-morador.html',import.meta.url),'utf8');
+ for(const id of ['camera-device','camera-start','camera-stop','camera-status','calling-video-status'])assert.match(visitor,new RegExp('id="'+id+'"'));
+ assert.doesNotMatch(visitor,/id="visitor-camera"|id="visitor-flip"/);
+ assert.match(resident,/id="incoming-answer-audio"/);
+ // Visitor cannot see the captured camera even during an active call.
+ assert.doesNotMatch(visitor,/<video\b/i);
+ assert.doesNotMatch(visitor,/id="camera-preview"|id="calling-video"/);
+ for(const id of ['remote-video','video-status','remote-audio'])assert.match(resident,new RegExp('id="'+id+'"'));
+});

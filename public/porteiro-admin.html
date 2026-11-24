@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NexusMaster · Residências e Porteiro Cloud</title><link rel="stylesheet" href="/style.css">
+<style>body{margin:0;background:#0b1727;color:#e9f5fc;font-family:system-ui,sans-serif}.container{max-width:900px;margin:auto;padding:24px}.panel{background:#142c43;border:1px solid #34546b;border-radius:14px;padding:18px;margin:16px 0}label{display:block;margin:12px 0}input,select{width:100%;padding:12px;margin-top:7px;border-radius:9px;background:#0b1b2a;border:1px solid #54738a;color:white;box-sizing:border-box}.controls{display:flex;gap:12px;flex-wrap:wrap;align-items:center}button{padding:11px 15px;cursor:pointer;border:0;border-radius:9px;background:#187ab1;color:white;font-weight:700}button:disabled{opacity:.5}.danger{background:#94505d}.muted{color:#bdd0de}ul{padding-left:22px}li{margin:10px 0}.error{color:#ffc6c6}.success{color:#9eeabb}a{color:#9ccff4}</style>
+</head><body><main class="container">
+<a href="/master.html">← Voltar ao NexusMaster</a>
+<h1>Residências e Porteiro Cloud</h1><p class="muted">Cadastro central do NexusMaster. O administrador Master controla a contratação; o síndico gerencia apenas o seu condomínio.</p>
+<p id="notice" role="status" aria-live="polite"></p>
+<section class="panel"><h2 id="client-name">Carregando cliente...</h2>
+<div id="subscription" hidden><label><input type="checkbox" id="enabled" style="width:auto"> Porteiro Cloud habilitado para este cliente</label>
+<button id="save-subscription" type="button">Salvar habilitação (Master)</button>
+<p class="muted">Desativar encerra chamadas em andamento. O cadastro permanece preservado.</p></div>
+<p id="subscription-readonly"></p></section>
+<section class="panel"><h2>Nova residência</h2><form id="add-residence">
+<label>Código interno (sem espaços)<input name="id" required maxlength="64" pattern="[A-Za-z0-9_-]+" placeholder="casa-01"></label>
+<label>Nome exibido na portaria<input name="label" required maxlength="55" placeholder="Casa 01"></label>
+<button type="submit">Cadastrar residência</button></form></section>
+<section class="panel"><h2>Residências e moradores vinculados</h2><div id="residences">Carregando...</div></section>
+<p class="muted">Para criar uma conta ou alterar a senha de um morador, utilize o cadastro de pessoas do NexusMaster. A abertura de portões continua fora do Porteiro Cloud.</p>
+</main><script type="module" src="/porteiro-admin.js"></script></body></html>
